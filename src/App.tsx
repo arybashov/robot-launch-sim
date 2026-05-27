@@ -635,22 +635,11 @@ function App() {
           <h1>{tr(lang, 'Impulse drive simulator', 'Симулятор импульсного привода')}</h1>
         </div>
         <div className="topbar-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <a 
-            href="https://github.com/arybashov/robot-launch-sim#robot-launch-sim---physics-whitepaper" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            style={{ 
-              textDecoration: 'none', 
-              background: '#333', 
-              padding: '6px 12px', 
-              borderRadius: '6px', 
-              color: '#fff', 
-              fontSize: '13px', 
-              fontWeight: 500,
-              border: '1px solid #555' 
-            }}
+          <a
+            href="./whitepaper.html"
+            className="whitepaper-button"
           >
-            {tr(lang, '📄 Whitepaper (Math)', '📄 Формулы (Whitepaper)')}
+            {tr(lang, '📄 Whitepaper', '📄 Формулы')}
           </a>
           <div className="language-toggle" aria-label="Language">
             <button className={lang === 'en' ? 'active' : ''} type="button" onClick={() => setLang('en')}>EN</button>

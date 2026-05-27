@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Physics Whitepaper — Impulse Drive Simulator</title>
+  <script>
+    MathJax = {
+      tex: { inlineMath: [['$','$']], displayMath: [['$$','$$']] },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    :root {
+      --bg: #0c111c;
+      --surface: #111827;
+      --surface2: #1a2333;
+      --border: rgba(148,163,184,0.14);
+      --text: #d7deea;
+      --muted: #8fa0b8;
+      --accent: #0b7a75;
+      --accent2: #d35d32;
+      --gold: #f5b33d;
+      --heading: #f4f7fb;
+      --code-bg: #0d1520;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Georgia', 'Times New Roman', serif;
+      font-size: 17px;
+      line-height: 1.72;
+      scroll-behavior: smooth;
+    }
+
+    /* ── language switching ── */
+    html[data-lang="en"] .ru { display: none; }
+    html[data-lang="ru"] .en { display: none; }
+
+    body {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 740px);
+      gap: 0;
+      min-height: 100vh;
+    }
+
+    /* ── sidebar ── */
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 32px 18px;
+      border-right: 1px solid var(--border);
+      background: rgba(17,24,39,0.70);
+      backdrop-filter: blur(8px);
+    }
+
+    nav .logo { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin-bottom: 22px; display: block; }
+
+    nav ul { list-style: none; }
+    nav li { margin-bottom: 2px; }
+    nav a { display: block; color: var(--muted); text-decoration: none; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12.5px; font-weight: 500; padding: 4px 8px; border-radius: 5px; transition: color 0.15s, background 0.15s; }
+    nav a:hover { color: var(--heading); background: rgba(255,255,255,0.06); }
+    nav .section-link { color: var(--text); font-weight: 700; margin-top: 12px; }
+
+    nav .back-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 16px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; font-family: ui-sans-serif, system-ui, sans-serif; color: var(--muted); text-decoration: none; width: 100%; transition: border-color 0.15s, color 0.15s; }
+    nav .back-link:hover { color: var(--heading); border-color: rgba(148,163,184,0.35); }
+
+    /* ── lang toggle ── */
+    .lang-toggle { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; display: inline-flex; padding: 3px; margin-top: 20px; width: 100%; }
+    .lang-btn { background: transparent; border: 0; border-radius: 6px; color: #8fa0b8; cursor: pointer; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; font-weight: 800; flex: 1; padding: 6px 0; transition: background 0.15s, color 0.15s; }
+    html[data-lang="en"] .lang-btn[data-lang="en"],
+    html[data-lang="ru"] .lang-btn[data-lang="ru"] { background: var(--gold); color: #111827; }
+
+    /* ── main ── */
+    main { padding: 56px 48px 96px; max-width: 740px; }
+
+    /* ── hero ── */
+    .hero { margin-bottom: 52px; padding-bottom: 40px; border-bottom: 1px solid var(--border); }
+    .hero .tag { display: inline-block; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
+    h1 { font-size: 38px; line-height: 1.1; color: var(--heading); margin-bottom: 18px; letter-spacing: -0.02em; }
+    .hero .subtitle { font-size: 18px; color: var(--muted); line-height: 1.5; max-width: 580px; }
+    .hero-meta { display: flex; gap: 28px; margin-top: 22px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+
+    /* ── sections ── */
+    section { margin-top: 56px; }
+    h2 { font-size: 26px; color: var(--heading); margin-bottom: 16px; letter-spacing: -0.01em; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 18px; color: var(--heading); margin-top: 32px; margin-bottom: 12px; font-family: ui-sans-serif, system-ui, sans-serif; font-weight: 700; }
+    p { margin-bottom: 14px; color: var(--text); }
+    p:last-child { margin-bottom: 0; }
+
+    /* ── abstract ── */
+    .abstract { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 22px 24px; font-style: italic; color: var(--muted); }
+    .abstract strong { color: var(--text); font-style: normal; }
+
+    /* ── callouts ── */
+    .callout { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; margin: 20px 0; }
+    .callout.muscle { border-left: 3px solid var(--accent); }
+    .callout.motor  { border-left: 3px solid var(--accent2); }
+    .callout.note   { border-left: 3px solid var(--gold); }
+    .callout-title { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+    .callout.muscle .callout-title { color: var(--accent); }
+    .callout.motor  .callout-title { color: var(--accent2); }
+    .callout.note   .callout-title { color: var(--gold); }
+
+    /* ── math ── */
+    .math-block { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin: 18px 0; overflow-x: auto; text-align: center; }
+
+    /* ── tables ── */
+    .table-wrap { overflow-x: auto; margin: 20px 0; }
+    table { border-collapse: collapse; width: 100%; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 14px; }
+    th, td { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: left; }
+    th { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; background: var(--surface); }
+    td { color: var(--text); }
+    td:not(:first-child) { font-family: 'JetBrains Mono','Fira Code',monospace; }
+    tr:hover td { background: rgba(255,255,255,0.025); }
+
+    /* ── code ── */
+    code { font-family: 'JetBrains Mono','Fira Code','Courier New',monospace; font-size: 13.5px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: #93c5fd; }
+
+    /* ── figure ── */
+    figure { margin: 28px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    figcaption { padding: 12px 18px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; color: var(--muted); border-top: 1px solid var(--border); }
+    .diagram { padding: 32px 24px 20px; display: flex; justify-content: center; }
+    svg text { font-family: ui-sans-serif, system-ui, sans-serif; }
+
+    /* ── result grid ── */
+    .result-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 20px 0; }
+    .result-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+    .result-card .label { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+    .result-card .value { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 22px; font-weight: 900; color: var(--heading); line-height: 1; }
+    .result-card .value.accent  { color: var(--accent); }
+    .result-card .value.accent2 { color: var(--accent2); }
+
+    /* ── lists ── */
+    ol, ul { padding-left: 24px; margin-bottom: 14px; }
+    li { margin-bottom: 6px; }
+
+    /* ── responsive ── */
+    @media (max-width: 900px) {
+      body { grid-template-columns: 1fr; }
+      nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: 16px; }
+      main { padding: 32px 20px 64px; }
+      h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════ SIDEBAR ══════════════ -->
+<nav>
+  <span class="logo"><span class="en">Whitepaper</span><span class="ru">Вайтпейпер</span></span>
+
+  <div class="lang-toggle">
+    <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+    <button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button>
+  </div>
+
+  <ul style="margin-top:18px">
+    <li><a class="section-link" href="#abstract"><span class="en">Abstract</span><span class="ru">Аннотация</span></a></li>
+    <li><a href="#intro"><span class="en">1. Introduction</span><span class="ru">1. Введение</span></a></li>
+    <li><a href="#systems"><span class="en">2. Systems</span><span class="ru">2. Системы</span></a></li>
+    <li><a href="#model"><span class="en">3. Math Model</span><span class="ru">3. Матем. модель</span></a></li>
+    <li><a href="#kinematics"><span class="en">— Kinematics</span><span class="ru">— Кинематика</span></a></li>
+    <li><a href="#inertia"><span class="en">— Inertia</span><span class="ru">— Инерция</span></a></li>
+    <li><a href="#muscle-force"><span class="en">— Muscle force</span><span class="ru">— Сила мышцы</span></a></li>
+    <li><a href="#torque"><span class="en">— Torque</span><span class="ru">— Момент силы</span></a></li>
+    <li><a href="#eom"><span class="en">— Eq. of motion</span><span class="ru">— Ур-е движения</span></a></li>
+    <li><a href="#motor-model"><span class="en">— Motor model</span><span class="ru">— Модель мотора</span></a></li>
+    <li><a href="#projectile"><span class="en">— Projectile</span><span class="ru">— Снаряд</span></a></li>
+    <li><a href="#energy"><span class="en">4. Energy analysis</span><span class="ru">4. Энергетика</span></a></li>
+    <li><a href="#findings"><span class="en">5. Key findings</span><span class="ru">5. Выводы</span></a></li>
+    <li><a href="#params"><span class="en">6. Parameters</span><span class="ru">6. Параметры</span></a></li>
+    <li><a href="#numerics"><span class="en">7. Numerics</span><span class="ru">7. Числ. методы</span></a></li>
+  </ul>
+
+  <a class="back-link" href="./">
+    <span class="en">← Back to simulator</span>
+    <span class="ru">← К симулятору</span>
+  </a>
+</nav>
+
+<!-- ══════════════ MAIN ══════════════ -->
+<main>
+
+  <!-- HERO -->
+  <div class="hero">
+    <span class="tag en">Technical whitepaper</span>
+    <span class="tag ru">Технический вайтпейпер</span>
+    <h1>
+      <span class="en">Impulse Drive Simulator<br>— Physics Model</span>
+      <span class="ru">Симулятор импульсного привода<br>— Физическая модель</span>
+    </h1>
+    <p class="subtitle en">A comparative study of pneumatic artificial muscle pairs versus geared electric motors for short-duration impulsive throwing.</p>
+    <p class="subtitle ru">Сравнительное исследование пар пневматических мышц и редукторных электромоторов применительно к кратковременному импульсному броску.</p>
+    <div class="hero-meta">
+      <span>⚙️ Festo DMSP-20 vs <span class="en">brushless motor</span><span class="ru">бесщёточный мотор</span></span>
+      <span>📐 <span class="en">Rigid-body dynamics</span><span class="ru">Динамика твёрдого тела</span></span>
+      <span>🎯 <span class="en">Projectile ballistics</span><span class="ru">Баллистика снаряда</span></span>
+    </div>
+  </div>
+
+  <!-- ABSTRACT -->
+  <div class="abstract" id="abstract">
+    <p class="en"><strong>Abstract.</strong> This document describes the physics model underlying the Impulse Drive Simulator. We model two throwing mechanisms — an antagonistic pair of Festo DMSP-20 pneumatic artificial muscles and a direct-drive motor with gearbox — and compare their tip speed, energy efficiency, and inertia penalty when launching a small payload over a fixed angular sweep. The muscle pair achieves higher tip speed at equal energy input primarily because its force source is <em>remote from the pivot</em>, eliminating the reflected rotor inertia that limits geared drives.</p>
+    <p class="ru"><strong>Аннотация.</strong> Документ описывает физическую модель симулятора импульсного привода. Рассматриваются два механизма броска — антагонистическая пара пневматических мышц Festo DMSP-20 и мотор с редуктором — и сравниваются скорость конца рычага, КПД и штраф на инерцию при запуске малого снаряда на фиксированный угловой ход. Мышечная пара достигает большей скорости при равных затратах энергии, поскольку источник силы <em>вынесен от оси</em> — это исключает отражённую инерцию ротора, ограничивающую редукторные приводы.</p>
+  </div>
+
+  <!-- 1. INTRO -->
+  <section id="intro">
+    <h2><span class="en">1. Introduction</span><span class="ru">1. Введение</span></h2>
+    <p class="en">Robotic throwing and impulse launching require generating a large angular velocity in a short time. Two common approaches are (a) a motor mounted at the pivot through a gearbox, and (b) a muscle-like actuator mounted away from the pivot and coupled through a lever arm. Each imposes a different penalty on system performance.</p>
+    <p class="ru">Роботизированный бросок и импульсный запуск требуют генерации большой угловой скорости за короткое время. Два распространённых подхода: (а) мотор на оси через редуктор и (б) мышцеподобный привод, вынесенный от оси и связанный через рычаг. Каждый вариант создаёт свои потери.</p>
+
+    <p class="en">A geared motor must accelerate not only the arm and payload but also its own rotor inertia — reflected through the gear ratio squared. A pneumatic artificial muscle, by contrast, exerts force from a remote anchor: the pivot sees only the pulley and arm, so nearly all the stored energy flows directly into the throw.</p>
+    <p class="ru">Редукторный мотор должен разгонять не только рычаг и снаряд, но и собственную инерцию ротора — отражённую через квадрат передаточного числа. Пневматическая мышца, напротив, тянет от удалённой точки крепления: ось «видит» только шкив и рычаг, поэтому почти вся запасённая энергия уходит непосредственно в бросок.</p>
+
+    <p class="en">The simulator integrates the equations of motion for both systems with identical energy budgets, then compares tip speed, trajectory, and launch efficiency.</p>
+    <p class="ru">Симулятор интегрирует уравнения движения обеих систем при одинаковом энергобюджете и сравнивает скорость конца рычага, траекторию и КПД броска.</p>
+  </section>
+
+  <!-- 2. SYSTEMS -->
+  <section id="systems">
+    <h2><span class="en">2. System Description</span><span class="ru">2. Описание систем</span></h2>
+
+    <div class="callout muscle">
+      <div class="callout-title en">Mechanism A — Antagonistic Muscle Pair</div>
+      <div class="callout-title ru">Механизм А — Антагонистическая пара мышц</div>
+      <p class="en">Two Festo DMSP-20 fluidic muscles are anchored to a fixed shoulder point and attached to the lever arm at a distance $d$ from the pivot. The <em>contracting muscle</em> drives the arm forward; the <em>elongating muscle</em> is pressurised during the braking phase to decelerate the arm after projectile release. Torque is produced by the tension difference multiplied by the geometric moment arm — no rotating machinery at the joint.</p>
+      <p class="ru">Две пневматические мышцы Festo DMSP-20 закреплены на фиксированной точке плеча и прикреплены к рычагу на расстоянии $d$ от оси. <em>Сокращающаяся мышца</em> толкает рычаг вперёд; <em>растягивающаяся</em> нагнетается в фазе торможения для замедления рычага после отпускания снаряда. Момент возникает от разницы натяжений, умноженной на геометрическое плечо — вращающихся механизмов на оси нет.</p>
+    </div>
+
+    <div class="callout motor">
+      <div class="callout-title en">Mechanism B — Motor at Pivot</div>
+      <div class="callout-title ru">Механизм Б — Мотор на оси</div>
+      <p class="en">A brushless motor drives the arm through a gearbox mounted coaxially with the pivot. The gearbox multiplies torque by ratio $N$ but divides output speed by the same factor and reflects rotor inertia as $I_{rotor} N^2$. To ensure a fair comparison, motor torque is matched so that the total mechanical work equals the muscle energy input over the same angular sweep.</p>
+      <p class="ru">Бесщёточный мотор приводит рычаг через редуктор, установленный соосно с пивотом. Редуктор умножает момент на $N$, но делит выходную скорость на тот же коэффициент и отражает инерцию ротора как $I_{rotor} N^2$. Для честного сравнения момент мотора подобран так, чтобы полная механическая работа равнялась энергии мышечной системы за тот же угловой ход.</p>
+    </div>
+
+    <figure>
+      <div class="diagram">
+        <svg width="600" height="200" viewBox="0 0 600 200">
+          <!-- ═══ Muscle side ═══ -->
+          <text x="0" y="18" fill="#0b7a75" font-size="13" font-weight="800">Muscle pair</text>
+
+          <!-- плечо: shoulder → pivot -->
+          <line x1="80" y1="100" x2="180" y2="100" stroke="#64748b" stroke-width="10" stroke-linecap="round"/>
+
+          <!-- рычаг: rear + front -->
+          <line x1="180" y1="100" x2="155" y2="117" stroke="#d7deea" stroke-width="6" stroke-linecap="round"/>
+          <line x1="180" y1="100" x2="250" y2="45" stroke="#d7deea" stroke-width="6" stroke-linecap="round"/>
+
+          <!-- мышцы -->
+          <line x1="80" y1="100" x2="205" y2="83" stroke="#0b7a75" stroke-width="3.5" stroke-linecap="round"/>
+          <text x="110" y="78" fill="#0b7a75" font-size="11" font-style="italic">contracting</text>
+          <line x1="80" y1="100" x2="155" y2="117" stroke="#d35d32" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5 3"/>
+          <text x="82" y="130" fill="#d35d32" font-size="11" font-style="italic">elongating</text>
+
+          <!-- payload -->
+          <circle cx="250" cy="45" r="9" fill="#f5b33d" stroke="#8b4b10" stroke-width="2"/>
+          <text x="260" y="40" fill="#f5b33d" font-size="11">payload</text>
+
+          <!-- точки крепления -->
+          <circle cx="205" cy="83" r="5" fill="#0b7a75"/>
+          <circle cx="155" cy="117" r="5" fill="#d35d32"/>
+
+          <!-- shoulder joint -->
+          <circle cx="80" cy="100" r="7" fill="#8fa0b8"/>
+          <text x="60" y="148" fill="#8fa0b8" font-size="11">shoulder</text>
+
+          <!-- pivot ring + ось -->
+          <circle cx="180" cy="100" r="10" fill="none" stroke="#f4f7fb" stroke-width="2.5"/>
+          <circle cx="180" cy="100" r="5" fill="#f5b33d"/>
+          <text x="168" y="128" fill="#8fa0b8" font-size="11">pivot</text>
+
+          <!-- ═══ Motor side ═══ -->
+          <text x="340" y="18" fill="#d35d32" font-size="13" font-weight="800">Motor at pivot</text>
+
+          <!-- плечо мотора -->
+          <line x1="340" y1="100" x2="440" y2="100" stroke="#64748b" stroke-width="12" stroke-linecap="round"/>
+
+          <!-- arm motor -->
+          <line x1="440" y1="100" x2="510" y2="45" stroke="#d7deea" stroke-width="6" stroke-linecap="round"/>
+
+          <!-- payload motor -->
+          <circle cx="510" cy="45" r="9" fill="#f5b33d" stroke="#8b4b10" stroke-width="2"/>
+          <text x="520" y="40" fill="#f5b33d" font-size="11">payload</text>
+
+          <!-- shoulder motor -->
+          <circle cx="340" cy="100" r="7" fill="#8fa0b8"/>
+
+          <!-- motor+gearbox -->
+          <circle cx="440" cy="100" r="22" fill="#1a2333" stroke="#475569" stroke-width="2.5"/>
+          <circle cx="440" cy="100" r="5" fill="#f5b33d"/>
+          <text x="415" y="148" fill="#8fa0b8" font-size="11">motor+gearbox</text>
+
+          <!-- reflected inertia label -->
+          <text x="415" y="163" fill="#d35d32" font-size="11" font-style="italic">+I·N²</text>
+        </svg>
+      </div>
+      <figcaption class="en">Fig. 1 — Left: muscle pair with remote force anchors and full lever (rear + front arm). Right: motor with gearbox at pivot. The key difference is where the heavy actuator sits relative to the rotation axis.</figcaption>
+      <figcaption class="ru">Рис. 1 — Слева: мышечная пара с удалёнными точками крепления и полным рычагом (задний + передний). Справа: мотор с редуктором на оси. Ключевое отличие — где находится тяжёлый привод относительно оси вращения.</figcaption>
+    </figure>
+  </section>
+
+  <!-- 3. MODEL -->
+  <section id="model">
+    <h2><span class="en">3. Mathematical Model</span><span class="ru">3. Математическая модель</span></h2>
+
+    <h3 id="kinematics"><span class="en">3.1 Kinematics</span><span class="ru">3.1 Кинематика</span></h3>
+    <p class="en">The arm is a rigid body rotating about the pivot. We define $\theta$ as the angle swept from the start position, with $\theta = 0$ at release (arm pointing vertically, giving maximum payload height). The arm starts at $\theta_0 = -\Delta\theta$ and is driven forward to $\theta_r = 0$.</p>
+    <p class="ru">Рычаг — твёрдое тело, вращающееся вокруг оси. $\theta$ — угол, отсчитываемый от начального положения; $\theta = 0$ соответствует моменту отпускания (рычаг вертикален, снаряд на максимальной высоте). Рычаг начинает движение с $\theta_0 = -\Delta\theta$ и разгоняется до $\theta_r = 0$.</p>
+
+    <div class="math-block">$$\theta(t) \in [-\Delta\theta,\; 0], \qquad \Delta\theta \text{ = <span class="en">angular sweep</span><span class="ru">угловой ход</span> (rad)}$$</div>
+
+    <p class="en">The world-frame arm angle at any instant is:</p>
+    <p class="ru">Абсолютный угол рычага в мировой системе координат:</p>
+
+    <div class="math-block">$$\phi_{arm}(t) = \frac{\pi}{2} + \phi_{base} + \theta(t)$$</div>
+
+    <p class="en">where $\phi_{base}$ is the tilt of the installation (negative for a forward lean).</p>
+    <p class="ru">где $\phi_{base}$ — наклон установки (отрицательный при наклоне вперёд).</p>
+
+    <h3 id="inertia"><span class="en">3.2 Moments of Inertia</span><span class="ru">3.2 Моменты инерции</span></h3>
+    <p class="en">The arm is modelled as a thin rod pivoted at one end, plus a small basket at the tip that holds the projectile until release.</p>
+    <p class="ru">Рычаг моделируется как тонкий стержень, закреплённый на одном конце, плюс небольшая корзина на конце, удерживающая снаряд до момента отпускания.</p>
+
+    <div class="math-block">$$I_{arm} = \underbrace{\frac{1}{3}\,m_{arm}\,L^2}_{\text{rod}} + \underbrace{m_{basket}\,L^2}_{\text{basket}}$$</div>
+    <div class="math-block">$$I_{payload} = m_p\,L^2, \qquad I_{loaded} = I_{arm} + I_{payload}$$</div>
+
+    <p class="en">After release, the payload leaves and the arm continues under brake torque with inertia $I_{arm}$ only.</p>
+    <p class="ru">После отпускания снаряд уходит, и рычаг продолжает движение под тормозным моментом только с инерцией $I_{arm}$.</p>
+
+    <h3 id="muscle-force"><span class="en">3.3 Muscle Force Model (Festo DMSP-20)</span><span class="ru">3.3 Модель силы мышцы (Festo DMSP-20)</span></h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th><span class="en">Parameter</span><span class="ru">Параметр</span></th>
+            <th><span class="en">Value</span><span class="ru">Значение</span></th>
+            <th><span class="en">Description</span><span class="ru">Описание</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>$T_{max}$</td><td>400 N</td><td><span class="en">Peak tension at zero stroke, 6 bar</span><span class="ru">Пиковое натяжение при нулевом ходе, 6 бар</span></td></tr>
+          <tr><td>$s_{max}$</td><td>25% $L_{nom}$</td><td><span class="en">Maximum contraction stroke</span><span class="ru">Максимальный ход сокращения</span></td></tr>
+          <tr><td>$\omega_{max}$</td><td>60 rad/s</td><td><span class="en">Speed at which force drops to zero</span><span class="ru">Угловая скорость обнуления силы</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="en">The geometric stroke of the front (contracting) muscle at arm angle $\theta$ is:</p>
+    <p class="ru">Геометрический ход передней (сокращающейся) мышцы при угле рычага $\theta$:</p>
+    <div class="math-block">$$s(t) = \max\!\bigl(0,\; L_{nom} - \|\vec{r}_{shoulder} - \vec{r}_{attach}(\theta)\|\bigr)$$</div>
+
+    <p class="en">The drive tension is modulated by a force–stroke curve (linear drop-off) and a velocity-dependent factor:</p>
+    <p class="ru">Тяговое усилие модулируется кривой сила–ход (линейное убывание) и скоростным коэффициентом:</p>
+    <div class="math-block">$$f_F = 1 - \frac{s}{s_{max}}, \qquad f_v = \max\!\left(0,\;1 - \frac{|\dot\theta|}{\omega_{max}}\right)$$</div>
+    <div class="math-block">$$T_{drive} = \begin{cases} T_{max}\,f_F\,f_v\,\eta & \text{<span class="en">signal on</span><span class="ru">сигнал вкл.</span>},\; s < s_{max} \\ 0.4\,T_{max}\,f_v\,\eta & \text{<span class="en">brake phase</span><span class="ru">торможение</span>} \\ 0 & \text{<span class="en">otherwise</span><span class="ru">иначе</span>} \end{cases}$$</div>
+
+    <p class="en">where $\eta$ is the transfer efficiency. The return (elongating) muscle applies tension $0.8\,T_{max}$ during the active brake window.</p>
+    <p class="ru">где $\eta$ — КПД передачи. Возвратная (растягивающаяся) мышца создаёт натяжение $0.8\,T_{max}$ в активном окне торможения.</p>
+
+    <h3 id="torque"><span class="en">3.4 Torque Computation</span><span class="ru">3.4 Вычисление момента</span></h3>
+    <p class="en">The torque about the pivot is the signed cross-product of the attachment vector with the muscle force vector, divided by the current muscle length:</p>
+    <p class="ru">Момент вокруг оси — знаковое векторное произведение вектора крепления на вектор силы мышцы, делённое на текущую длину мышцы:</p>
+    <div class="math-block">$$\tau_{drive} = T_{drive} \cdot \frac{\vec{r}_{attach} \times (\vec{r}_{shoulder} - \vec{r}_{attach})}{|\vec{r}_{shoulder} - \vec{r}_{attach}|}$$</div>
+
+    <p class="en">Expanding the 2-D cross product:</p>
+    <p class="ru">Раскрывая двумерное векторное произведение:</p>
+    <div class="math-block">$$= T_{drive} \cdot \frac{r_x\,(s_y - r_y)\;-\;r_y\,(s_x - r_x)}{L_{muscle}}$$</div>
+
+    <p class="en">A gravity torque and viscous damping are added:</p>
+    <p class="ru">Добавляются момент силы тяжести и вязкое демпфирование:</p>
+    <div class="math-block">$$\tau_{grav} = -m_{eff}\,g\,r_{cm}\cos\!\left(\theta + \tfrac{\pi}{2} + \phi_{base}\right)$$</div>
+    <div class="math-block">$$\tau_{friction} = c_{drag}\,\dot\theta\,|\dot\theta| + c_{visc}\,\dot\theta$$</div>
+
+    <h3 id="eom"><span class="en">3.5 Equation of Motion</span><span class="ru">3.5 Уравнение движения</span></h3>
+    <div class="math-block">$$I(\theta)\;\ddot\theta = \tau_{drive} + \tau_{return} + \tau_{grav} - \tau_{friction}$$</div>
+    <p class="en">The effective inertia switches at release:</p>
+    <p class="ru">Эффективная инерция переключается в момент отпускания:</p>
+    <div class="math-block">$$I(\theta) = \begin{cases} I_{loaded} & \theta < 0 \\ I_{arm} & \theta \geq 0 \end{cases}$$</div>
+
+    <h3 id="motor-model"><span class="en">3.6 Motor Drive Model</span><span class="ru">3.6 Модель мотора</span></h3>
+    <p class="en">Motor output torque is energy-matched to the muscle system:</p>
+    <p class="ru">Выходной момент мотора подобран по энергии к мышечной системе:</p>
+    <div class="math-block">$$\tau_{out} = \frac{E_{muscle}}{\Delta\theta}, \qquad E_{muscle} = \tfrac{1}{2}\,T_{max}\,s_{signal}\,\eta$$</div>
+
+    <p class="en">The gearbox introduces two penalties:</p>
+    <p class="ru">Редуктор вносит два вида потерь:</p>
+    <ol>
+      <li>
+        <p class="en"><strong>Speed cap.</strong> Output shaft cannot exceed motor no-load speed divided by ratio: $\omega_{cap} = \omega_{no\text{-}load} / N$</p>
+        <p class="ru"><strong>Ограничение скорости.</strong> Выходной вал не может превысить скорость холостого хода, делённую на передаточное число: $\omega_{cap} = \omega_{no\text{-}load} / N$</p>
+      </li>
+      <li>
+        <p class="en"><strong>Reflected inertia.</strong> Rotor inertia appears at the output multiplied by $N^2$: $I_{reflected} = I_{rotor}\,N^2$</p>
+        <p class="ru"><strong>Отражённая инерция.</strong> Инерция ротора проявляется на выходе, умноженная на $N^2$: $I_{reflected} = I_{rotor}\,N^2$</p>
+      </li>
+    </ol>
+    <div class="math-block">$$I_{motor,total} = I_{arm} + I_{reflected}$$</div>
+
+    <h3 id="projectile"><span class="en">3.7 Projectile Trajectory</span><span class="ru">3.7 Траектория снаряда</span></h3>
+    <p class="en">At release ($\theta = 0$), the payload leaves with tip speed perpendicular to the arm:</p>
+    <p class="ru">В момент отпускания ($\theta = 0$) снаряд уходит со скоростью конца рычага, перпендикулярной рычагу:</p>
+    <div class="math-block">$$v_0 = \dot\theta_r \cdot L, \qquad \phi_{launch} = \phi_{arm,r} + \frac{\pi}{2}$$</div>
+    <div class="math-block">$$v_x(0) = v_0\cos\phi_{launch}, \qquad v_y(0) = v_0\sin\phi_{launch}$$</div>
+
+    <p class="en">Trajectory with aerodynamic drag:</p>
+    <p class="ru">Траектория с аэродинамическим сопротивлением:</p>
+    <div class="math-block">$$k = \tfrac{1}{2}\,\rho\,C_D\,A, \qquad \dot v_x = -\frac{k\,v\,v_x}{m}, \qquad \dot v_y = -g - \frac{k\,v\,v_y}{m}$$</div>
+
+    <p class="en">Integration continues until $y \leq 0$. Landing $x$ = range; peak $y$ = max height.</p>
+    <p class="ru">Интегрирование продолжается до $y \leq 0$. Координата $x$ приземления — дальность; пик $y$ — максимальная высота.</p>
+  </section>
+
+  <!-- 4. ENERGY -->
+  <section id="energy">
+    <h2><span class="en">4. Energy Analysis</span><span class="ru">4. Энергетический анализ</span></h2>
+
+    <h3><span class="en">4.1 Useful energy</span><span class="ru">4.1 Полезная энергия</span></h3>
+    <div class="math-block">$$E_{useful} = \tfrac{1}{2}\,m_p\,v_0^2 = \tfrac{1}{2}\,m_p\,(\dot\theta_r\,L)^2$$</div>
+
+    <h3><span class="en">4.2 Inertia penalty (motor only)</span><span class="ru">4.2 Штраф на инерцию (только мотор)</span></h3>
+    <p class="en">A fraction of the motor's work accelerates its own reflected rotor inertia — energy dissipated in the brake rather than reaching the payload:</p>
+    <p class="ru">Часть работы мотора идёт на разгон собственной отражённой инерции ротора — эта энергия рассеивается в тормозе, не достигая снаряда:</p>
+    <div class="math-block">$$E_{wasted} = \tfrac{1}{2}\,I_{reflected}\,\dot\theta_r^2$$</div>
+    <p class="en">The muscle pair has no rotating drive components at the pivot, so $E_{wasted} \approx 0$.</p>
+    <p class="ru">Мышечная пара не имеет вращающихся компонентов привода на оси, поэтому $E_{wasted} \approx 0$.</p>
+
+    <h3><span class="en">4.3 Launch efficiency</span><span class="ru">4.3 КПД броска</span></h3>
+    <div class="math-block">$$\eta_{launch} = \frac{E_{useful}}{E_{input}}$$</div>
+
+    <div class="callout note">
+      <div class="callout-title en">Why the muscle wins</div>
+      <div class="callout-title ru">Почему мышца выигрывает</div>
+      <p class="en">At the same input energy, a muscle pair delivers more to the payload because it avoids the reflected-inertia loss. Additionally, the speed cap $\omega_{cap} = \omega_0/N$ limits how fast a geared motor can spin the arm, while the muscle has no such hard constraint — its force simply falls off linearly with angular velocity.</p>
+      <p class="ru">При одинаковой входной энергии мышечная пара передаёт больше снаряду, поскольку избегает потерь на отражённую инерцию. Кроме того, ограничение скорости $\omega_{cap} = \omega_0/N$ сдерживает скорость вращения рычага мотором, тогда как у мышцы нет такого жёсткого ограничения — её сила просто линейно падает с угловой скоростью.</p>
+    </div>
+  </section>
+
+  <!-- 5. FINDINGS -->
+  <section id="findings">
+    <h2><span class="en">5. Key Findings</span><span class="ru">5. Ключевые выводы</span></h2>
+    <p class="en">At the default parameters (24 g payload, 30 cm arm, 70° sweep):</p>
+    <p class="ru">При параметрах по умолчанию (снаряд 24 г, рычаг 30 см, ход 70°):</p>
+
+    <div class="result-grid">
+      <div class="result-card">
+        <div class="label"><span class="en">Muscle — inertia overhead</span><span class="ru">Мышца — overhead инерции</span></div>
+        <div class="value accent">≈ 0</div>
+      </div>
+      <div class="result-card">
+        <div class="label"><span class="en">Motor — reflected inertia</span><span class="ru">Мотор — отражённая инерция</span></div>
+        <div class="value accent2">N² × I<sub>rotor</sub></div>
+      </div>
+      <div class="result-card">
+        <div class="label"><span class="en">Muscle force source</span><span class="ru">Источник силы мышцы</span></div>
+        <div class="value" style="font-size:15px;line-height:1.3"><span class="en">Remote anchor,<br>not at pivot</span><span class="ru">Удалённая точка,<br>не на оси</span></div>
+      </div>
+      <div class="result-card">
+        <div class="label"><span class="en">Motor speed cap</span><span class="ru">Ограничение скорости мотора</span></div>
+        <div class="value" style="font-size:16px">ω<sub>cap</sub> = ω₀ / N</div>
+      </div>
+    </div>
+
+    <p class="en">Increasing gearbox ratio $N$ raises output torque but simultaneously (a) lowers the speed cap and (b) multiplies reflected inertia as $N^2$. There exists an optimal ratio beyond which tip speed decreases despite higher torque.</p>
+    <p class="ru">Увеличение передаточного числа $N$ повышает выходной момент, но одновременно (а) снижает ограничение скорости и (б) умножает отражённую инерцию на $N^2$. Существует оптимальное значение, за которым скорость конца рычага падает, несмотря на рост момента.</p>
+
+    <p class="en">The muscle pair sidesteps both penalties — its torque depends only on geometric moment arm and internal pressure, tunable without introducing a rotating mass at the joint.</p>
+    <p class="ru">Мышечная пара обходит оба ограничения — её момент зависит только от геометрического плеча и внутреннего давления, которые настраиваются без введения вращающейся массы на оси.</p>
+  </section>
+
+  <!-- 6. PARAMS -->
+  <section id="params">
+    <h2><span class="en">6. Default Parameter Reference</span><span class="ru">6. Справочник параметров</span></h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th><span class="en">Symbol</span><span class="ru">Символ</span></th>
+            <th><span class="en">Default</span><span class="ru">По умолч.</span></th>
+            <th><span class="en">Unit</span><span class="ru">Ед. изм.</span></th>
+            <th><span class="en">Description</span><span class="ru">Описание</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>$m_p$</td><td>24</td><td>g</td><td><span class="en">Projectile mass</span><span class="ru">Масса снаряда</span></td></tr>
+          <tr><td>$L$</td><td>30</td><td>cm</td><td><span class="en">Arm length</span><span class="ru">Длина рычага</span></td></tr>
+          <tr><td>$m_{arm}$</td><td>50</td><td>g</td><td><span class="en">Arm mass</span><span class="ru">Масса рычага</span></td></tr>
+          <tr><td>$\Delta\theta$</td><td>70</td><td>deg</td><td><span class="en">Angular sweep</span><span class="ru">Угловой ход</span></td></tr>
+          <tr><td>$\phi_{base}$</td><td>135</td><td>deg</td><td><span class="en">Installation tilt</span><span class="ru">Наклон установки</span></td></tr>
+          <tr><td>$d$</td><td>4</td><td>cm</td><td><span class="en">Muscle attach distance from pivot</span><span class="ru">Расстояние крепления мышцы от оси</span></td></tr>
+          <tr><td>$L_{front}$</td><td>30</td><td>cm</td><td><span class="en">Front muscle nominal length</span><span class="ru">Номинальная длина передней мышцы</span></td></tr>
+          <tr><td>$L_{rear}$</td><td>25</td><td>cm</td><td><span class="en">Rear muscle nominal length</span><span class="ru">Номинальная длина задней мышцы</span></td></tr>
+          <tr><td>$\eta$</td><td>0.55</td><td>—</td><td><span class="en">Muscle transfer efficiency</span><span class="ru">КПД передачи мышцы</span></td></tr>
+          <tr><td>$t_{signal}$</td><td>350</td><td>ms</td><td><span class="en">Contraction pulse duration</span><span class="ru">Длительность импульса сокращения</span></td></tr>
+          <tr><td>$t_{brake,0}$</td><td>350</td><td>ms</td><td><span class="en">Brake start time</span><span class="ru">Время начала торможения</span></td></tr>
+          <tr><td>$t_{brake,1}$</td><td>500</td><td>ms</td><td><span class="en">Brake end time</span><span class="ru">Время окончания торможения</span></td></tr>
+          <tr><td>$\tau_{motor}$</td><td>12</td><td>Ncm</td><td><span class="en">Motor stall torque</span><span class="ru">Стопорный момент мотора</span></td></tr>
+          <tr><td>$N$</td><td>90</td><td>:1</td><td><span class="en">Gearbox ratio</span><span class="ru">Передаточное число редуктора</span></td></tr>
+          <tr><td>$\omega_0$</td><td>9000</td><td>rpm</td><td><span class="en">Motor no-load speed</span><span class="ru">Скорость холостого хода мотора</span></td></tr>
+          <tr><td>$I_{rotor}$</td><td>1.8</td><td>g·cm²</td><td><span class="en">Motor rotor inertia</span><span class="ru">Инерция ротора мотора</span></td></tr>
+          <tr><td>$C_D$</td><td>0.47</td><td>—</td><td><span class="en">Drag coefficient (sphere)</span><span class="ru">Коэффициент лобового сопротивления</span></td></tr>
+          <tr><td>$A$</td><td>11.3</td><td>cm²</td><td><span class="en">Projectile cross-section</span><span class="ru">Площадь сечения снаряда</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 7. NUMERICS -->
+  <section id="numerics">
+    <h2><span class="en">7. Numerical Methods</span><span class="ru">7. Численные методы</span></h2>
+
+    <h3><span class="en">Integration scheme</span><span class="ru">Схема интегрирования</span></h3>
+    <p class="en">Both motion equations are integrated with <strong>semi-implicit (symplectic) Euler</strong> at $\Delta t = 0.5\ \text{ms}$. Velocity is updated first, then position:</p>
+    <p class="ru">Оба уравнения движения интегрируются <strong>полунеявным (симплектическим) методом Эйлера</strong> с шагом $\Delta t = 0{,}5\ \text{мс}$. Сначала обновляется скорость, затем положение:</p>
+
+    <div class="math-block">
+      $$\dot\theta_{n+1} = \dot\theta_n + \frac{\tau_n}{I}\,\Delta t \qquad \theta_{n+1} = \theta_n + \dot\theta_{n+1}\,\Delta t$$
+    </div>
+
+    <p class="en">This scheme conserves energy better than forward Euler and requires no iteration, making it efficient for real-time simulation.</p>
+    <p class="ru">Эта схема лучше сохраняет энергию, чем явный метод Эйлера, и не требует итераций, что обеспечивает эффективность интерактивной симуляции.</p>
+
+    <h3><span class="en">Termination conditions</span><span class="ru">Условия завершения</span></h3>
+    <ul>
+      <li><p class="en"><strong>Release:</strong> $\theta \geq 0$ — arm reached vertical.</p><p class="ru"><strong>Отпускание:</strong> $\theta \geq 0$ — рычаг достиг вертикали.</p></li>
+      <li><p class="en"><strong>Projectile:</strong> $y \leq 0$ and $t > \Delta t$ — ground contact.</p><p class="ru"><strong>Снаряд:</strong> $y \leq 0$ и $t > \Delta t$ — касание земли.</p></li>
+      <li><p class="en"><strong>Arm post-release:</strong> $|\dot\theta| < 0.01\ \text{rad/s}$ after brake window, or 8 s absolute limit.</p><p class="ru"><strong>Рычаг после отпускания:</strong> $|\dot\theta| < 0{,}01\ \text{рад/с}$ после торможения или 8 с абсолютного лимита.</p></li>
+      <li><p class="en"><strong>Hard cap:</strong> 20 000 steps per simulation.</p><p class="ru"><strong>Жёсткое ограничение:</strong> 20 000 шагов на симуляцию.</p></li>
+    </ul>
+
+    <h3><span class="en">Projectile trajectory</span><span class="ru">Траектория снаряда</span></h3>
+    <p class="en">Ballistic trajectory uses forward Euler at $\Delta t = 2\ \text{ms}$, chosen to keep the drag correction below 1% per step at typical velocities.</p>
+    <p class="ru">Баллистическая траектория интегрируется явным методом Эйлера с шагом $\Delta t = 2\ \text{мс}$ — выбран так, чтобы поправка на сопротивление не превышала 1% за шаг при типичных скоростях.</p>
+
+    <div class="callout note">
+      <div class="callout-title en">Accuracy note</div>
+      <div class="callout-title ru">Замечание о точности</div>
+      <p class="en">At $\Delta t = 0.5\ \text{ms}$ the muscle simulation takes up to 10 000 steps for a 5 s event. All simulations complete in under 2 ms on a modern CPU, enabling real-time interactive parameter exploration.</p>
+      <p class="ru">При $\Delta t = 0{,}5\ \text{мс}$ симуляция мышцы занимает до 10 000 шагов для события длительностью 5 с. Все симуляции завершаются менее чем за 2 мс на современном процессоре, обеспечивая интерактивный анализ параметров в реальном времени.</p>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  function setLang(lang) {
+    document.documentElement.dataset.lang = lang;
+    localStorage.setItem('wp-lang', lang);
+  }
+  // restore saved language
+  const saved = localStorage.getItem('wp-lang') || 'en';
+  setLang(saved);
+</script>
+
+</body>
+</html>
