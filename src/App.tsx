@@ -205,9 +205,6 @@ function CombinedTrajectoryPlot({
         ))}
         <line className="axis-line" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
         <line className="axis-line" x1={padding} x2={padding} y1={padding} y2={height - padding} />
-        <text className="axis-unit" x={width - padding} y={height - 8} textAnchor="end">
-          cm
-        </text>
         <text className="axis-unit" x={padding + 8} y={padding + 14}>
           cm
         </text>
@@ -661,7 +658,10 @@ function App() {
           <RangeControl label={tr(lang, 'Arm mass', 'Масса рычага')} value={params.armMassG} min={1} max={80} step={1} unit="g" onChange={(value) => updateParam('armMassG', value)} />
           <RangeControl label={tr(lang, 'Angular sweep', 'Угловой ход')} value={params.sweepDeg} min={5} max={110} step={1} unit="deg" onChange={(value) => updateParam('sweepDeg', value)} />
 
-          <h2>{tr(lang, 'Muscle pair', 'Пара мышц')}</h2>
+          <h2>{tr(lang, 'Muscle pair (Festo DMSP-20)', 'Пара мышц (Festo DMSP-20)')}</h2>
+          <div style={{ fontSize: '0.85em', color: '#888', marginBottom: '12px' }}>
+            {tr(lang, 'Simulating fluidic muscle: Max 1500N at 6 bar, max stroke 25% of length.', 'Симуляция пневмомышцы: Пик 1500N при 6 бар, макс. ход 25% от длины.')}
+          </div>
           <RangeControl label={tr(lang, 'Front muscle L', 'Длина передней мышцы')} value={params.frontMuscleLengthCm} min={10} max={60} step={0.5} unit="cm" onChange={(value) => updateParam('frontMuscleLengthCm', value)} />
           <RangeControl label={tr(lang, 'Rear muscle L', 'Длина задней мышцы')} value={params.rearMuscleLengthCm} min={10} max={60} step={0.5} unit="cm" onChange={(value) => updateParam('rearMuscleLengthCm', value)} />
           <RangeControl label={tr(lang, 'Attach point', 'Точка крепления')} value={params.muscleAttachCm} min={1} max={Math.min(params.armLengthCm, 12)} step={0.1} unit="cm" onChange={(value) => updateParam('muscleAttachCm', value)} />
@@ -746,7 +746,7 @@ function App() {
           </div>
 
           <section className="panel comparison-panel">
-            <h2>{tr(lang, 'Muscle pair vs motor', 'Мышечная пара против мотора')}</h2>
+            <h2>{tr(lang, 'Festo DMSP-20 vs Motor', 'Festo DMSP-20 против мотора')}</h2>
             <div className="comparison-cards">
               <div>
                 <span>{tr(lang, 'Muscle pair advantage', 'Преимущество мышечной пары')}</span>
