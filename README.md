@@ -1,89 +1,81 @@
-# Robot Launch Sim
+# Robot Launch Sim - Physics Whitepaper
 
-Browser simulator for comparing two launch mechanisms:
+This document details the physical models, kinematics, and dynamic calculations used in the Robot Launch Simulator. The simulator was built to provide a fair, energy-matched comparison between a traditional electromechanical motor drive and a biomechanical antagonistic fluidic muscle pair.
 
-- an antagonistic muscle-pair drive with the force source moved away from the pivot;
-- a motor plus gearbox drive mounted at the elbow/pivot.
+## 1. Core Mechanics & Inertia
 
-The app is built as a lightweight 2D model for quickly testing geometry,
-impulse timing, braking, inertia, launch speed, and projectile trajectory.
+The simulator models a 1-Degree-of-Freedom (1-DOF) robotic arm acting as a catapult. The total load on the pivot point consists of three components:
 
-## Run locally
+1. **Forearm Rod Inertia:** Modeled as a thin rod rotating about one end.
+   $$I_{rod} = \frac{1}{3} \cdot m_{arm} \cdot L^2$$
+2. **Basket/Holder Inertia:** Modeled as a point mass at the end of the arm (default 10g).
+   $$I_{basket} = m_{basket} \cdot L^2$$
+3. **Projectile Inertia (Pre-release):** Modeled as a point mass at the end of the arm.
+   $$I_{projectile} = m_{projectile} \cdot L^2$$
 
-```bash
-npm install
-npm run dev -- --host 127.0.0.1
-```
+**Total Loaded Inertia:**
+$$I_{total} = I_{rod} + I_{basket} + I_{projectile}$$
 
-Open `http://127.0.0.1:5173`.
+---
 
-## Build and checks
+## 2. Artificial Muscle Model (Festo DMSP-20)
 
-```bash
-npm run build
-npm run lint
-```
+The simulator uses characteristics derived from the **Festo DMSP-20** fluidic muscle operating at ~2 bar pressure (scaled down to 400N max force for stability on a lightweight prototype).
 
-## Current model
+### 2.1 Kinematics (Vector Geometry)
+The muscle is not modeled as a simple pulley. Instead, we use vector geometry to calculate the true distance between the shoulder anchor and the attachment point on the lever.
 
-The model uses a fixed-duration control input for both drive types:
+* **Shoulder Anchor ($P_s$):** Fixed position relative to the base.
+* **Attachment Point ($P_a$):** Moves in an arc: $P_a(\theta) = [r \cdot \cos(\theta), r \cdot \sin(\theta)]$
+* **Current Muscle Length ($L_c$):** $||P_s - P_a||$
+* **Stroke ($S$):** $L_{nominal} - L_c$
 
-- default drive impulse: `350 ms`;
-- default brake impulse: `150 ms`;
-- the same timing is applied to the muscle and motor cases.
+### 2.2 Force-Length Relationship
+Fluidic muscles exhibit a non-linear (virtually linear) force decay. Maximum force is available at 0% contraction, dropping to 0N at maximum contraction (25% of nominal length).
 
-During the drive impulse, the simulator integrates:
+$$F_{static} = F_{max} \cdot \left(1 - \frac{S}{S_{max}}\right)$$
 
-```text
-torque -> angular acceleration -> angular velocity -> arm angle
-```
+### 2.3 Force-Velocity Relationship (Hill's Curve Approximation)
+Muscles cannot contract infinitely fast. As contraction velocity ($\omega$) approaches the pneumatic limit ($v_{max} \approx 60$ rad/s), force drops to zero.
 
-At release, the projectile separates from the arm. The projectile then follows
-its own 2D trajectory while the arm mechanism continues moving under its
-remaining inertia and braking model.
+$$v_{factor} = \max\left(0, 1 - \frac{|\omega|}{v_{max}}\right)$$
+$$F_{dynamic} = F_{static} \cdot v_{factor} \cdot \eta_{transfer}$$
 
-## Muscle-pair drive
+### 2.4 Active Co-Contraction (Braking)
+To prevent the arm from over-extending and spinning uncontrollably, the simulator uses **co-contraction**. During the braking phase, both muscles activate:
+* **Front Muscle:** 40% activation (maintains stiffness).
+* **Rear Muscle:** 80% activation (provides net stopping torque).
+This stiffens the joint and absorbs kinetic energy efficiently.
 
-The muscle drive uses:
+---
 
-- contracting muscle tension;
-- elongating/return muscle tension;
-- muscle attach point near the elbow;
-- muscle stroke limit;
-- arm and payload inertia before release;
-- forearm inertia after release.
+## 3. Fair Energy Comparison (Muscle vs. Motor)
 
-After the control signal ends, the muscle relaxes and no longer meaningfully
-loads the mechanism, except during the configured brake impulse.
+To answer the question *"Which is better?"*, the simulator forces a **fair fight based on equal energy input**.
 
-## Motor plus gearbox drive
+1. **Muscle Energy Budget:** The simulator calculates the total mechanical work ($W$) performed by the front muscle during the launch phase by integrating force over distance.
+2. **Motor Scaling:** Instead of letting the user arbitrarily pick a massive motor, the simulator calculates the required motor torque to deliver that **exact same energy budget ($W$)** over the same sweep angle ($\theta_{sweep}$).
+   $$\tau_{motor} = \frac{W}{\theta_{sweep}}$$
 
-The motor drive uses:
+### 3.1 The Reflected Inertia Penalty
+Why does the motor lose? Because of **Reflected Inertia**. To get high torque, motors need gearboxes. A gearbox multiplies torque by ratio $N$, but it multiplies the rotor's inertia by $N^2$.
 
-- motor torque;
-- gearbox ratio and efficiency;
-- motor no-load speed limit;
-- rotor inertia reflected through the gearbox;
-- a brake impulse applied through the drive after the command signal.
+$$I_{reflected} = I_{rotor} \cdot N^2$$
 
-The visual motor is shown as one combined motor/gearbox unit at the elbow.
+**The Result:** The motor wastes a massive portion of its energy budget just spinning up its own internal rotor, leaving less energy for the projectile. The muscle, being direct-drive, transfers almost 100% of its work into the arm.
 
-## Interface parameters
+---
 
-The left panel exposes the main working parameters:
+## 4. Environmental Physics
 
-- payload mass;
-- arm length and arm mass;
-- angular sweep;
-- muscle tensions;
-- muscle attach point and stroke;
-- drive impulse length;
-- brake impulse length;
-- motor torque;
-- gearbox ratio.
+To ensure stability and realism, the simulator includes:
+* **Gravity:** $T_g = -m \cdot g \cdot r_{cm} \cdot \cos(\theta_{world})$
+* **Quadratic Aerodynamic Drag:** $T_{drag} = C_d \cdot \omega \cdot |\omega|$
+* **Viscous Joint Damping:** $T_{viscous} = c \cdot \omega$
+* **Semi-Implicit Euler Integration:** For stable energy conservation over time.
 
-## GitHub Pages
+## 5. Ballistics (Projectile Motion)
 
-The repository includes `.github/workflows/deploy.yml`. After pushing to
-GitHub, enable Pages in the repository settings and select GitHub Actions as
-the source.
+Upon reaching the release angle (defined by the base tilt), the projectile is freed.
+* **Launch Velocity:** $v_0 = \omega_{release} \cdot L_{arm}$
+* **Trajectory:** Calculated using standard projectile motion equations, accounting for the dynamic base angle orientation and optional aerodynamic drag on the ball.
