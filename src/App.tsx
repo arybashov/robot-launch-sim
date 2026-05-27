@@ -25,8 +25,6 @@ function clamp01(value: number) {
   return Math.min(1, Math.max(0, value))
 }
 
-const ARM_POSE_ROTATION_RAD = (-110 * Math.PI) / 180
-
 function getFrameAtTime<T extends { t: number }>(frames: T[], time: number) {
   const lastFrame = frames[frames.length - 1]
 

@@ -148,7 +148,6 @@ export function simulateDesign(params: DesignParams): SimulationResult {
   const brakeEndSeconds = params.brakeEndMs / 1000
   const pivotHeightM = params.pivotHeightCm / 100
   const releaseHeightM = Math.max(0.01, pivotHeightM + Math.sin(releaseArmRad) * armLengthM)
-  const bearingLossNm = params.bearingLossNcm / 100
 
   const basketMassKg = 0.01 
   const projectileInertia = projectileMassKg * armLengthM ** 2
@@ -158,9 +157,6 @@ export function simulateDesign(params: DesignParams): SimulationResult {
   const totalLoadedInertia = projectileInertia + armInertia
   
   const requiredTravelM = muscleAttachM * sweepRad
-  const contractingTorque = params.contractingTensionN * muscleAttachM
-  const elongatingTorque = params.elongatingTensionN * muscleAttachM
-  const netTorque = Math.max(0, contractingTorque - elongatingTorque)
   
   // 1. Muscle Simulation
   const motion = simulateMuscleMotion({
@@ -171,10 +167,7 @@ export function simulateDesign(params: DesignParams): SimulationResult {
     rearNominalLengthM: params.rearMuscleLengthCm / 100,
     sweepRad,
     baseRotationRad,
-    contractingTensionN: params.contractingTensionN,
-    elongatingTensionN: params.elongatingTensionN,
     transferEfficiency: params.transferEfficiency,
-    bearingLossNm,
     signalDurationSeconds: controlSignalSeconds,
     brakeStartSeconds,
     brakeEndSeconds,
@@ -193,6 +186,7 @@ export function simulateDesign(params: DesignParams): SimulationResult {
     params,
     energyMatchedTorqueNm, 
     armInertia: totalLoadedInertia,
+    reflectedBaseInertia: forearmRodInertia,
     armLengthM,
     sweepRad,
     releaseAngleRad,
@@ -224,7 +218,7 @@ export function simulateDesign(params: DesignParams): SimulationResult {
     mechanism: {
       armInertia,
       projectileInertia,
-      forearmInertia,
+      forearmInertia: forearmRodInertia,
       frames: motion.frames,
       muscleTravelM: signalMotionFrame.travelM,
       requiredTravelM,
@@ -233,9 +227,9 @@ export function simulateDesign(params: DesignParams): SimulationResult {
       resistingWork: 0,
       lossWork: 0,
       launchEnergy: 0.5 * armInertia * angularSpeed ** 2,
-      netTorque,
-      contractingTorque,
-      elongatingTorque,
+      netTorque: 0,
+      contractingTorque: 0,
+      elongatingTorque: 0,
       angularSpeed,
       tipSpeed,
     },
@@ -253,6 +247,7 @@ function simulateMotorDrive({
   params,
   energyMatchedTorqueNm,
   armInertia,
+  reflectedBaseInertia,
   armLengthM,
   sweepRad,
   releaseAngleRad,
@@ -265,6 +260,7 @@ function simulateMotorDrive({
   params: DesignParams
   energyMatchedTorqueNm: number
   armInertia: number
+  reflectedBaseInertia: number
   armLengthM: number
   sweepRad: number
   releaseAngleRad: number
@@ -283,7 +279,7 @@ function simulateMotorDrive({
   const totalInertia = armInertia + reflectedInertia
   const motion = simulateMotorMotion({
     loadedInertia: totalInertia,
-    releasedInertia: forearmInertia(params) + reflectedInertia,
+    releasedInertia: reflectedBaseInertia + reflectedInertia,
     outputTorque,
     outputSpeedLimit,
     sweepRad,
@@ -341,10 +337,7 @@ function simulateMuscleMotion({
   rearNominalLengthM,
   sweepRad,
   baseRotationRad,
-  contractingTensionN,
-  elongatingTensionN,
   transferEfficiency,
-  bearingLossNm,
   signalDurationSeconds,
   brakeStartSeconds,
   brakeEndSeconds,
@@ -356,10 +349,7 @@ function simulateMuscleMotion({
   rearNominalLengthM: number
   sweepRad: number
   baseRotationRad: number
-  contractingTensionN: number
-  elongatingTensionN: number
   transferEfficiency: number
-  bearingLossNm: number
   signalDurationSeconds: number
   brakeStartSeconds: number
   brakeEndSeconds: number
@@ -563,12 +553,6 @@ function simulateMotorMotion({
 }
 
 
-
-function forearmInertia(params: DesignParams) {
-  const armLengthM = params.armLengthCm / 100
-  const armMassKg = params.armMassG / 1000
-  return (armMassKg * armLengthM ** 2) / 3
-}
 
 function getReleaseFrame(frames: MotionFrame[]) {
   return frames.find((frame) => frame.released) ?? frames[frames.length - 1]
