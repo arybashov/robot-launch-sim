@@ -6,10 +6,13 @@ export type DesignParams = {
   elongatingTensionN: number
   pulleyRadiusCm: number
   muscleAttachCm: number
-  muscleStrokeMm: number
+  frontMuscleLengthCm: number
+  rearMuscleLengthCm: number
   controlSignalMs: number
-  brakeSignalMs: number
+  brakeStartMs: number
+  brakeEndMs: number
   sweepDeg: number
+  baseAngleDeg: number
   pivotHeightCm: number
   transferEfficiency: number
   bearingLossNcm: number
@@ -39,6 +42,7 @@ export type MechanismResult = {
   muscleTravelM: number
   requiredTravelM: number
   muscleWork: number
+  wastedEnergy: number
   resistingWork: number
   lossWork: number
   launchEnergy: number
@@ -69,6 +73,7 @@ export type MotorResult = {
   outputSpeedLimit: number
   reflectedInertia: number
   totalInertia: number
+  wastedEnergy: number
   work: number
   launchEnergy: number
   angularSpeed: number
@@ -90,19 +95,22 @@ export type MotionFrame = {
 
 const G = 9.81
 const AIR_DENSITY = 1.225
-const ARM_POSE_ROTATION_RAD = (-110 * Math.PI) / 180
+
 export const initialParams: DesignParams = {
   projectileMassG: 24,
   armLengthCm: 30,
-  armMassG: 12,
+  armMassG: 50,
   contractingTensionN: 8,
   elongatingTensionN: 2,
   pulleyRadiusCm: 1.8,
   muscleAttachCm: 4,
-  muscleStrokeMm: 35,
+  frontMuscleLengthCm: 30,
+  rearMuscleLengthCm: 25,
   controlSignalMs: 350,
-  brakeSignalMs: 150,
-  sweepDeg: 50,
+  brakeStartMs: 350,
+  brakeEndMs: 500,
+  sweepDeg: 70,
+  baseAngleDeg: 135,
   pivotHeightCm: 4,
   transferEfficiency: 0.55,
   bearingLossNcm: 1.5,
@@ -123,57 +131,81 @@ export function simulateDesign(params: DesignParams): SimulationResult {
   const armLengthM = params.armLengthCm / 100
   const armMassKg = params.armMassG / 1000
   const muscleAttachM = Math.min(params.muscleAttachCm, params.armLengthCm) / 100
-  const muscleStrokeM = params.muscleStrokeMm / 1000
   const sweepRad = (params.sweepDeg * Math.PI) / 180
-  const releaseAngleRad = Math.PI + ARM_POSE_ROTATION_RAD
+  
+  // Base rotation (tilt of the installation)
+  const baseRotationRad = (-params.baseAngleDeg * Math.PI) / 180
+  
+  // Release occurs when angleRad reaches 0 (arm is aligned with base).
+  // The absolute angle in the world is baseRotationRad + current arm angle.
+  // Wait, the visual arm is PI/2 + baseRotationRad when angleRad is 0.
+  const releaseArmRad = Math.PI / 2 + baseRotationRad
+  // The velocity vector is perpendicular to the arm radius (moving counter-clockwise)
+  const releaseAngleRad = releaseArmRad + Math.PI / 2 
+  
   const controlSignalSeconds = params.controlSignalMs / 1000
-  const brakeSignalSeconds = params.brakeSignalMs / 1000
+  const brakeStartSeconds = params.brakeStartMs / 1000
+  const brakeEndSeconds = params.brakeEndMs / 1000
   const pivotHeightM = params.pivotHeightCm / 100
-  const releaseArmRad = Math.PI / 2 + ARM_POSE_ROTATION_RAD
   const releaseHeightM = Math.max(0.01, pivotHeightM + Math.sin(releaseArmRad) * armLengthM)
   const bearingLossNm = params.bearingLossNcm / 100
 
+  const basketMassKg = 0.01 
   const projectileInertia = projectileMassKg * armLengthM ** 2
-  const forearmInertia = (armMassKg * armLengthM ** 2) / 3
-  const armInertia = projectileInertia + forearmInertia
+  const forearmRodInertia = (armMassKg * armLengthM ** 2) / 3
+  const basketInertia = basketMassKg * armLengthM ** 2
+  const armInertia = forearmRodInertia + basketInertia
+  const totalLoadedInertia = projectileInertia + armInertia
+  
   const requiredTravelM = muscleAttachM * sweepRad
   const contractingTorque = params.contractingTensionN * muscleAttachM
   const elongatingTorque = params.elongatingTensionN * muscleAttachM
   const netTorque = Math.max(0, contractingTorque - elongatingTorque)
+  
+  // 1. Muscle Simulation
   const motion = simulateMuscleMotion({
-    loadedInertia: armInertia,
-    releasedInertia: forearmInertia,
+    loadedInertia: totalLoadedInertia,
+    releasedInertia: armInertia,
     muscleAttachM,
-    muscleStrokeM,
+    frontNominalLengthM: params.frontMuscleLengthCm / 100,
+    rearNominalLengthM: params.rearMuscleLengthCm / 100,
     sweepRad,
+    baseRotationRad,
     contractingTensionN: params.contractingTensionN,
     elongatingTensionN: params.elongatingTensionN,
     transferEfficiency: params.transferEfficiency,
     bearingLossNm,
     signalDurationSeconds: controlSignalSeconds,
-    brakeDurationSeconds: brakeSignalSeconds,
+    brakeStartSeconds,
+    brakeEndSeconds,
   })
+
   const releaseMotionFrame = getReleaseFrame(motion.frames)
   const signalMotionFrame = getFrameAtTime(motion.frames, controlSignalSeconds)
-  const muscleTravelM = signalMotionFrame.travelM
-  const muscleWork = params.contractingTensionN * muscleTravelM * params.transferEfficiency
-  const resistingWork = params.elongatingTensionN * muscleTravelM
-  const lossWork = bearingLossNm * Math.abs(releaseMotionFrame.angleRad + sweepRad)
-  const launchEnergy = 0.5 * armInertia * releaseMotionFrame.omega ** 2
-  const angularSpeed = releaseMotionFrame.omega
-  const tipSpeed = angularSpeed * armLengthM
-  const kineticEnergy = 0.5 * projectileMassKg * tipSpeed ** 2
+  
+  // Calculate Actual Work Done by Muscle (Energy Budget)
+  const muscleWork = 0.5 * 400 * (signalMotionFrame.travelM) * params.transferEfficiency;
+  
+  // 2. Motor Simulation (Energy Matched)
+  const energyMatchedTorqueNm = muscleWork / sweepRad;
+  
   const motor = simulateMotorDrive({
     params,
-    armInertia,
+    energyMatchedTorqueNm, 
+    armInertia: totalLoadedInertia,
     armLengthM,
     sweepRad,
     releaseAngleRad,
     releaseHeightM,
     projectileMassKg,
     controlSignalSeconds,
-    brakeSignalSeconds,
+    brakeStartSeconds,
+    brakeEndSeconds,
   })
+
+  const angularSpeed = releaseMotionFrame.omega
+  const tipSpeed = angularSpeed * armLengthM
+  const kineticEnergy = 0.5 * projectileMassKg * tipSpeed ** 2
 
   const points = simulateProjectile({
     massKg: projectileMassKg,
@@ -194,12 +226,13 @@ export function simulateDesign(params: DesignParams): SimulationResult {
       projectileInertia,
       forearmInertia,
       frames: motion.frames,
-      muscleTravelM,
+      muscleTravelM: signalMotionFrame.travelM,
       requiredTravelM,
       muscleWork,
-      resistingWork,
-      lossWork,
-      launchEnergy,
+      wastedEnergy: 0, // Muscle is direct drive
+      resistingWork: 0,
+      lossWork: 0,
+      launchEnergy: 0.5 * armInertia * angularSpeed ** 2,
       netTorque,
       contractingTorque,
       elongatingTorque,
@@ -218,6 +251,7 @@ export function simulateDesign(params: DesignParams): SimulationResult {
 
 function simulateMotorDrive({
   params,
+  energyMatchedTorqueNm,
   armInertia,
   armLengthM,
   sweepRad,
@@ -225,9 +259,11 @@ function simulateMotorDrive({
   releaseHeightM,
   projectileMassKg,
   controlSignalSeconds,
-  brakeSignalSeconds,
+  brakeStartSeconds,
+  brakeEndSeconds,
 }: {
   params: DesignParams
+  energyMatchedTorqueNm: number
   armInertia: number
   armLengthM: number
   sweepRad: number
@@ -235,12 +271,13 @@ function simulateMotorDrive({
   releaseHeightM: number
   projectileMassKg: number
   controlSignalSeconds: number
-  brakeSignalSeconds: number
+  brakeStartSeconds: number
+  brakeEndSeconds: number
 }): MotorResult {
-  const motorTorqueNm = params.motorTorqueNcm / 100
-  const outputTorque = motorTorqueNm * params.gearboxRatio * params.gearboxEfficiency
+  const outputTorque = energyMatchedTorqueNm; 
   const outputSpeedLimit =
     ((params.motorNoLoadRpm / params.gearboxRatio) * 2 * Math.PI) / 60
+
   const rotorInertiaKgM2 = params.motorRotorInertiaGcm2 * 1e-7
   const reflectedInertia = rotorInertiaKgM2 * params.gearboxRatio ** 2
   const totalInertia = armInertia + reflectedInertia
@@ -252,13 +289,15 @@ function simulateMotorDrive({
     sweepRad,
     postReleaseBrakeTorque: outputTorque,
     signalDurationSeconds: controlSignalSeconds,
-    brakeDurationSeconds: brakeSignalSeconds,
+    brakeStartSeconds,
+    brakeEndSeconds,
   })
   const releaseMotionFrame = getReleaseFrame(motion.frames)
   const signalMotionFrame = getFrameAtTime(motion.frames, controlSignalSeconds)
   const rawWork = outputTorque * Math.max(0, signalMotionFrame.angleRad + sweepRad)
   const work = rawWork
   const angularSpeed = releaseMotionFrame.omega
+  const wastedEnergy = 0.5 * reflectedInertia * angularSpeed ** 2
   const launchEnergy = 0.5 * totalInertia * angularSpeed ** 2
   const tipSpeed = angularSpeed * armLengthM
   const points = simulateProjectile({
@@ -282,6 +321,7 @@ function simulateMotorDrive({
     outputSpeedLimit,
     reflectedInertia,
     totalInertia,
+    wastedEnergy,
     work,
     launchEnergy,
     angularSpeed,
@@ -297,56 +337,145 @@ function simulateMuscleMotion({
   loadedInertia,
   releasedInertia,
   muscleAttachM,
-  muscleStrokeM,
+  frontNominalLengthM,
+  rearNominalLengthM,
   sweepRad,
+  baseRotationRad,
   contractingTensionN,
   elongatingTensionN,
   transferEfficiency,
   bearingLossNm,
   signalDurationSeconds,
-  brakeDurationSeconds,
+  brakeStartSeconds,
+  brakeEndSeconds,
 }: {
   loadedInertia: number
   releasedInertia: number
   muscleAttachM: number
-  muscleStrokeM: number
+  frontNominalLengthM: number
+  rearNominalLengthM: number
   sweepRad: number
+  baseRotationRad: number
   contractingTensionN: number
   elongatingTensionN: number
   transferEfficiency: number
   bearingLossNm: number
   signalDurationSeconds: number
-  brakeDurationSeconds: number
+  brakeStartSeconds: number
+  brakeEndSeconds: number
 }) {
-  const dt = 0.001
+  const dt = 0.0005 
   const frames: MotionFrame[] = []
   let t = 0
   let angleRad = -sweepRad
   let omega = 0
-  let travelM = 0
   let released = false
 
-  for (let step = 0; step < 5000; step += 1) {
-    travelM = Math.min(muscleStrokeM, Math.max(0, (angleRad + sweepRad) * muscleAttachM))
+  // Max stroke for DMSP-20 is 25% of nominal length
+  const frontMaxStrokeM = frontNominalLengthM * 0.25
+  const rearMaxStrokeM = rearNominalLengthM * 0.25
+
+  // Anchor positions (from diagram logic)
+  const shoulderDistM = 0.17 * (170/170); // Match diagram scale
+  const shoulderAngleRad = Math.PI + baseRotationRad
+  const releaseArmRad = Math.PI / 2 + baseRotationRad
+  
+  const shoulderX = Math.cos(shoulderAngleRad) * shoulderDistM
+  const shoulderY = Math.sin(shoulderAngleRad) * shoulderDistM
+
+  for (let step = 0; step < 20000; step += 1) {
     const signalOn = t <= signalDurationSeconds
-    const brakeOn = t > signalDurationSeconds && t <= signalDurationSeconds + brakeDurationSeconds
-    const hasStroke = signalOn && travelM < muscleStrokeM
-    const driveTorque = hasStroke ? contractingTensionN * transferEfficiency * muscleAttachM : 0
-    const resistingTorque = hasStroke ? elongatingTensionN * muscleAttachM : 0
-    const lossTorque = omega > 0 && signalOn ? bearingLossNm : 0
-    const brakeTorque = brakeOn ? elongatingTensionN * muscleAttachM : 0
-    const torque = hasStroke ? Math.max(0, driveTorque - resistingTorque - lossTorque) : -brakeTorque
+    const brakeOn = t >= brakeStartSeconds && t <= brakeEndSeconds
+    
+    // Current positions of attachment points
+    const currentArmRad = releaseArmRad + angleRad
+    const attachX = Math.cos(currentArmRad) * muscleAttachM
+    const attachY = Math.sin(currentArmRad) * muscleAttachM
+    
+    const rearAttachX = -attachX
+    const rearAttachY = -attachY
 
-    frames.push({ t, angleRad, omega, torque, travelM, released })
+    // Geometric lengths
+    const currentFrontLen = Math.hypot(shoulderX - attachX, shoulderY - attachY)
+    const currentRearLen = Math.hypot(shoulderX - rearAttachX, shoulderY - rearAttachY)
 
-    if (t > signalDurationSeconds + brakeDurationSeconds && omega <= 0) {
-      break
+    // Strokes (how much contracted from nominal)
+    const frontStrokeM = Math.max(0, frontNominalLengthM - currentFrontLen)
+    const rearStrokeM = Math.max(0, rearNominalLengthM - currentRearLen)
+
+    // Festo DMSP-20 Characteristics with Speed Limit
+    const MAX_FORCE_N = 400 
+    const V_MAX_RAD_S = 60 
+    const velocityFactor = Math.max(0, 1 - Math.abs(omega) / V_MAX_RAD_S)
+    
+    // Front Muscle
+    let driveTension = 0
+    if (signalOn && frontStrokeM < frontMaxStrokeM) {
+      const forceFactor = 1 - (frontStrokeM / frontMaxStrokeM)
+      driveTension = MAX_FORCE_N * forceFactor * velocityFactor * transferEfficiency
+    } else if (brakeOn) {
+      driveTension = MAX_FORCE_N * 0.4 * velocityFactor * transferEfficiency
+    } else {
+      driveTension = 0.01 
     }
+
+    // Rear Muscle
+    let returnTension = 0
+    if (brakeOn && rearStrokeM < rearMaxStrokeM) {
+      const forceFactor = 1 - (rearStrokeM / rearMaxStrokeM)
+      returnTension = MAX_FORCE_N * 0.8 * forceFactor * velocityFactor * transferEfficiency
+    } else {
+      returnTension = 0.01 
+    }
+
+    // Torque calculation
+    const crossProductFront = (attachX * (shoulderY - attachY) - attachY * (shoulderX - attachX)) / currentFrontLen
+    const crossProductRear = (rearAttachX * (shoulderY - rearAttachY) - rearAttachY * (shoulderX - rearAttachX)) / currentRearLen
+
+    const driveTorque = driveTension * crossProductFront
+    const returnTorque = returnTension * crossProductRear
+    
+    // Gravity torque
+    const armMassKg = (released ? 1 : 1.2) * 0.02 
+    const centerOfMassM = 0.15 
+    const gravityTorque = -armMassKg * G * centerOfMassM * Math.cos(angleRad + Math.PI/2 + baseRotationRad)
+
+    // Air Resistance and Joint Limits
+    const dragCoeff = 0.0005 
+    const viscousDamping = 0.002
+    const frictionTorque = (dragCoeff * omega * Math.abs(omega)) + (viscousDamping * omega)
+    
+    let limitTorque = 0
+    const jointLimitRad = Math.PI * 0.9 
+    const currentRotation = angleRad + sweepRad
+    if (Math.abs(currentRotation) > jointLimitRad) {
+      const overshoot = Math.abs(currentRotation) - jointLimitRad
+      limitTorque = Math.sign(currentRotation) * overshoot * 10 
+      omega *= 0.9 
+    }
+
+    const torque = driveTorque + returnTorque + gravityTorque - frictionTorque - limitTorque
+
+    if (step % 2 === 0) {
+      frames.push({ t, angleRad, omega, torque, travelM: frontStrokeM, released })
+    }
+
+    // Stop condition relative to actual base orientation
+    const verticalDownRad = -Math.PI/2 - baseRotationRad;
+    
+    if (t > Math.max(signalDurationSeconds, brakeEndSeconds) + 2.0) {
+      if (Math.abs(omega) < 0.01 && Math.abs(angleRad - verticalDownRad) < 0.1) {
+        break
+      }
+    }
+    
+    if (t > 8.0) break; // Absolute limit for simulation length
 
     const inertia = released ? releasedInertia : loadedInertia
     const alpha = inertia > 0 ? torque / inertia : 0
+    
+    // Semi-implicit Euler (Velocity then Position)
     omega += alpha * dt
-    omega = Math.max(0, omega)
     angleRad += omega * dt
     t += dt
 
@@ -354,10 +483,6 @@ function simulateMuscleMotion({
       angleRad = 0
       released = true
     }
-  }
-
-  if (frames[frames.length - 1]?.angleRad !== angleRad) {
-    frames.push({ t, angleRad, omega, torque: 0, travelM, released })
   }
 
   return { frames }
@@ -371,7 +496,8 @@ function simulateMotorMotion({
   sweepRad,
   postReleaseBrakeTorque,
   signalDurationSeconds,
-  brakeDurationSeconds,
+  brakeStartSeconds,
+  brakeEndSeconds,
 }: {
   loadedInertia: number
   releasedInertia: number
@@ -380,9 +506,10 @@ function simulateMotorMotion({
   sweepRad: number
   postReleaseBrakeTorque: number
   signalDurationSeconds: number
-  brakeDurationSeconds: number
+  brakeStartSeconds: number
+  brakeEndSeconds: number
 }) {
-  const dt = 0.001
+  const dt = 0.0005
   const frames: MotionFrame[] = []
   let t = 0
   let angleRad = -sweepRad
@@ -390,23 +517,34 @@ function simulateMotorMotion({
   let travelM = 0
   let speedLimited = false
   let released = false
+  const viscousDamping = 0.005
 
-  for (let step = 0; step < 5000; step += 1) {
+  for (let step = 0; step < 20000; step += 1) {
     const sweptRad = Math.max(0, angleRad + sweepRad)
     const signalOn = t <= signalDurationSeconds
-    const brakeOn = t > signalDurationSeconds && t <= signalDurationSeconds + brakeDurationSeconds
-    const torque = signalOn ? outputTorque : brakeOn ? -postReleaseBrakeTorque : 0
+    const brakeOn = t >= brakeStartSeconds && t <= brakeEndSeconds
+    
+    const dampingTorque = viscousDamping * omega
+    let torque = (signalOn ? outputTorque : brakeOn ? -postReleaseBrakeTorque : -0.05) - dampingTorque
+    
+    if (angleRad <= -sweepRad && torque < 0) {
+      angleRad = -sweepRad
+      omega = 0
+      torque = 0
+    }
 
-    frames.push({ t, angleRad, omega, torque, travelM, released })
+    if (step % 2 === 0) {
+      frames.push({ t, angleRad, omega, torque, travelM, released })
+    }
 
-    if (t > signalDurationSeconds + brakeDurationSeconds && omega <= 0) {
+    if (t > Math.max(signalDurationSeconds, brakeEndSeconds) + 0.5 && angleRad <= -sweepRad + 0.001 && Math.abs(omega) < 0.01) {
       break
     }
 
     const inertia = released ? releasedInertia : loadedInertia
     const alpha = inertia > 0 ? torque / inertia : 0
+    
     omega += alpha * dt
-    omega = Math.max(0, omega)
     if (omega > outputSpeedLimit) {
       omega = outputSpeedLimit
       speedLimited = true
@@ -421,12 +559,10 @@ function simulateMotorMotion({
     }
   }
 
-  if (frames[frames.length - 1]?.angleRad !== angleRad) {
-    frames.push({ t, angleRad, omega, torque: 0, travelM, released })
-  }
-
   return { frames, speedLimited }
 }
+
+
 
 function forearmInertia(params: DesignParams) {
   const armLengthM = params.armLengthCm / 100

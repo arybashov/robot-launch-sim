@@ -126,38 +126,55 @@ function CombinedTrajectoryPlot({
   const width = 640
   const height = 220
   const padding = 28
-  const maxX = Math.max(muscleRange, motorRange, 0.15)
-  const maxY = Math.max(muscleMaxHeight, motorMaxHeight, 0.15)
   const plotWidth = width - padding * 2
   const plotHeight = height - padding * 2
+
+  // Determine physical bounds
+  const maxPhysX = Math.max(muscleRange, motorRange, 0.15) * 1.05
+  const maxPhysY = Math.max(muscleMaxHeight, motorMaxHeight, 0.15) * 1.10
+
+  // Calculate scales (pixels per meter)
+  const scaleX = plotWidth / maxPhysX
+  const scaleY = plotHeight / maxPhysY
+
+  // Enforce 1:1 aspect ratio by taking the smallest scale (most restrictive)
+  const scale = Math.min(scaleX, scaleY)
+
+  // Recalculate max values based on the uniform scale to draw grid correctly
+  const maxX = plotWidth / scale
+  const maxY = plotHeight / scale
+
   const xTicks = Array.from({ length: 5 }, (_, index) => {
     const value = (maxX * index) / 4
-    const x = padding + (value / maxX) * plotWidth
+    const x = padding + value * scale
     return { value, x }
   })
   const yTicks = Array.from({ length: 4 }, (_, index) => {
     const value = (maxY * index) / 3
-    const y = height - padding - (value / maxY) * plotHeight
+    const y = height - padding - value * scale
     return { value, y }
   })
-  const makePath = (points: SimulationResult['points']) =>
-    points
+
+  const makePath = (points: SimulationResult['points']) => {
+    if (!points || points.length === 0) return '';
+    return points
       .map((point, index) => {
-        const px = padding + (point.x / maxX) * plotWidth
-        const py = height - padding - (point.y / maxY) * plotHeight
-        return `${index === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)}`
+        const px = padding + point.x * scale
+        const py = height - padding - point.y * scale
+        return `${index === 0 ? 'M' : 'L'} ${px.toFixed(2)} ${py.toFixed(2)}`
       })
       .join(' ')
+  }
   const musclePath = makePath(musclePoints)
   const motorPath = makePath(motorPoints)
   const muscleProgressIndex = Math.min(musclePoints.length - 1, Math.max(0, Math.floor(progress * (musclePoints.length - 1))))
   const motorProgressIndex = Math.min(motorPoints.length - 1, Math.max(0, Math.floor(progress * (motorPoints.length - 1))))
   const muscleActivePoint = musclePoints[muscleProgressIndex]
   const motorActivePoint = motorPoints[motorProgressIndex]
-  const muscleActiveX = padding + (muscleActivePoint.x / maxX) * plotWidth
-  const muscleActiveY = height - padding - (muscleActivePoint.y / maxY) * plotHeight
-  const motorActiveX = padding + (motorActivePoint.x / maxX) * plotWidth
-  const motorActiveY = height - padding - (motorActivePoint.y / maxY) * plotHeight
+  const muscleActiveX = padding + muscleActivePoint.x * scale
+  const muscleActiveY = height - padding - muscleActivePoint.y * scale
+  const motorActiveX = padding + motorActivePoint.x * scale
+  const motorActiveY = height - padding - motorActivePoint.y * scale
 
   return (
     <div className="plot-shell compact-plot">
@@ -302,7 +319,9 @@ function MechanismDiagram({
     x: pivotX + Math.cos(angleRad) * distance,
     y: pivotY - Math.sin(angleRad) * distance,
   })
-  const shoulderRad = Math.PI + ARM_POSE_ROTATION_RAD
+  
+  const baseRotationRad = (-params.baseAngleDeg * Math.PI) / 180
+  const shoulderRad = Math.PI + baseRotationRad
   const shoulder = pointFromPivot(shoulderRad, 170)
   const shoulderNormalRad = shoulderRad + Math.PI / 2
   const leftAnchor = {
@@ -315,7 +334,7 @@ function MechanismDiagram({
   }
   const armScale = 5.15
   const armLength = params.armLengthCm * armScale
-  const releaseRad = Math.PI / 2 + ARM_POSE_ROTATION_RAD
+  const releaseRad = Math.PI / 2 + baseRotationRad
   const motionFrame = getFrameAtTime(result.mechanism.frames, simulationTime)
   const releaseFrame = getFirstReleasedFrame(result.mechanism.frames)
   const projectileReleased = simulationTime >= releaseFrame.t
@@ -339,6 +358,9 @@ function MechanismDiagram({
     ? releaseEndY - (projectilePoint.y - releaseHeightM) * projectileScale
     : armEndY
 
+  const contractingActive = (simulationTime <= params.controlSignalMs / 1000 && motionFrame.travelM < (params.frontMuscleLengthCm * 0.25) / 100) || (simulationTime >= params.brakeStartMs / 1000 && simulationTime <= params.brakeEndMs / 1000)
+  const elongatingActive = simulationTime >= params.brakeStartMs / 1000 && simulationTime <= params.brakeEndMs / 1000
+
   return (
     <div className="diagram-shell">
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Lever mechanism diagram">
@@ -348,6 +370,11 @@ function MechanismDiagram({
           </marker>
         </defs>
         <rect className="diagram-bg" x="0" y="0" width={width} height={height} />
+        
+        {/* Ground Line */}
+        <line x1="0" y1={height - 20} x2={width} y2={height - 20} stroke="#444" strokeWidth="2" strokeDasharray="5,5" />
+        <text x="10" y={height - 5} fill="#666" fontSize="12">Ground Level</text>
+
         <text className="diagram-title" x="28" y="34">
           Antagonistic muscle pair
         </text>
@@ -357,8 +384,16 @@ function MechanismDiagram({
         <line className="upper-arm-line" x1={shoulder.x} y1={shoulder.y} x2={pivotX} y2={pivotY} />
         <circle className="shoulder-joint" cx={shoulder.x} cy={shoulder.y} r="11" />
         <circle className="elbow-joint" cx={pivotX} cy={pivotY} r="22" />
-        <line className="muscle-line elongating-muscle" x1={leftAnchor.x} y1={leftAnchor.y} x2={rearAttachX} y2={rearAttachY} />
-        <line className="muscle-line contracting-muscle" x1={rightAnchor.x} y1={rightAnchor.y} x2={attachX} y2={attachY} />
+        <line 
+          className="muscle-line" 
+          x1={leftAnchor.x} y1={leftAnchor.y} x2={rearAttachX} y2={rearAttachY} 
+          style={{ stroke: elongatingActive ? '#ff8c00' : '#4a9eff', strokeWidth: elongatingActive ? 8 : 4, transition: 'stroke 0.1s' }}
+        />
+        <line 
+          className="muscle-line" 
+          x1={rightAnchor.x} y1={rightAnchor.y} x2={attachX} y2={attachY} 
+          style={{ stroke: contractingActive ? '#ff8c00' : '#4a9eff', strokeWidth: contractingActive ? 8 : 4, transition: 'stroke 0.1s' }}
+        />
         <line className="attach-link" x1={pivotX} y1={pivotY} x2={attachX} y2={attachY} />
         <line className="attach-link rear-attach-link" x1={pivotX} y1={pivotY} x2={rearAttachX} y2={rearAttachY} />
         <line className="forearm-extension" x1={pivotX} y1={pivotY} x2={rearAttachX} y2={rearAttachY} />
@@ -389,11 +424,12 @@ function MechanismDiagram({
 
         <g className="diagram-stats">
           <rect x="500" y="82" width="184" height="132" rx="8" />
-          <text x="516" y="112">T contract: {formatNumber(params.contractingTensionN, 1)} N</text>
-          <text x="516" y="140">T elongate: {formatNumber(params.elongatingTensionN, 1)} N</text>
+          <text x="516" y="112" style={{ fontWeight: 'bold', fill: '#ff8c00' }}>Festo DMSP-20</text>
+          <text x="516" y="140">T current: {formatNumber(motionFrame.torque / Math.max(0.01, params.muscleAttachCm/100), 1)} N</text>
           <text x="516" y="168">net torque: {formatNumber(result.mechanism.netTorque, 3)} Nm</text>
           <text x="516" y="196">travel: {formatNumber(result.mechanism.muscleTravelM * 1000, 0)} mm</text>
         </g>
+
         <text className="dimension-label" x="78" y="372">
           elongating length: {formatNumber(elongatingLengthCm, 1)} cm
         </text>
@@ -422,11 +458,13 @@ function MotorDiagram({
     x: pivotX + Math.cos(angleRad) * distance,
     y: pivotY - Math.sin(angleRad) * distance,
   })
-  const shoulderRad = Math.PI + ARM_POSE_ROTATION_RAD
+  
+  const baseRotationRad = (-params.baseAngleDeg * Math.PI) / 180
+  const shoulderRad = Math.PI + baseRotationRad
   const shoulder = pointFromPivot(shoulderRad, 170)
   const armScale = 5.15
   const armLength = params.armLengthCm * armScale
-  const releaseRad = Math.PI / 2 + ARM_POSE_ROTATION_RAD
+  const releaseRad = Math.PI / 2 + baseRotationRad
   const motionFrame = getFrameAtTime(result.motor.frames, simulationTime)
   const releaseFrame = getFirstReleasedFrame(result.motor.frames)
   const projectileReleased = simulationTime >= releaseFrame.t
@@ -453,6 +491,11 @@ function MotorDiagram({
           </marker>
         </defs>
         <rect className="diagram-bg" x="0" y="0" width={width} height={height} />
+        
+        {/* Ground Line */}
+        <line x1="0" y1={height - 20} x2={width} y2={height - 20} stroke="#444" strokeWidth="2" strokeDasharray="5,5" />
+        <text x="10" y={height - 5} fill="#666" fontSize="12">Ground Level</text>
+
         <text className="diagram-title" x="28" y="34">Motor at pivot</text>
         <text className="diagram-note" x="28" y="58">
           Torque is generated through a gearbox mounted directly on the pivot.
@@ -613,19 +656,20 @@ function App() {
           <RangeControl label={tr(lang, 'Object mass', 'Масса объекта')} value={params.projectileMassG} min={5} max={60} step={1} unit="g" onChange={(value) => updateParam('projectileMassG', value)} />
 
           <h2>{tr(lang, 'Lever', 'Рычаг')}</h2>
+          <RangeControl label={tr(lang, 'Base Angle', 'Наклон установки')} value={params.baseAngleDeg} min={0} max={180} step={5} unit="deg" onChange={(value) => updateParam('baseAngleDeg', value)} />
           <RangeControl label={tr(lang, 'Arm length', 'Длина рычага')} value={params.armLengthCm} min={15} max={45} step={0.5} unit="cm" onChange={(value) => updateParam('armLengthCm', value)} />
           <RangeControl label={tr(lang, 'Arm mass', 'Масса рычага')} value={params.armMassG} min={1} max={80} step={1} unit="g" onChange={(value) => updateParam('armMassG', value)} />
           <RangeControl label={tr(lang, 'Angular sweep', 'Угловой ход')} value={params.sweepDeg} min={5} max={110} step={1} unit="deg" onChange={(value) => updateParam('sweepDeg', value)} />
 
           <h2>{tr(lang, 'Muscle pair', 'Пара мышц')}</h2>
-          <RangeControl label={tr(lang, 'Contracting tension', 'Тяга сокращения')} value={params.contractingTensionN} min={0.2} max={40} step={0.1} unit="N" onChange={(value) => updateParam('contractingTensionN', value)} />
-          <RangeControl label={tr(lang, 'Elongating tension', 'Сопротивление растяжения')} value={params.elongatingTensionN} min={0} max={20} step={0.1} unit="N" onChange={(value) => updateParam('elongatingTensionN', value)} />
-          <RangeControl label={tr(lang, 'Attach point (~13% arm)', 'Точка крепления (~13% рычага)')} value={params.muscleAttachCm} min={1} max={Math.min(params.armLengthCm, 12)} step={0.1} unit="cm" onChange={(value) => updateParam('muscleAttachCm', value)} />
-          <RangeControl label={tr(lang, 'Muscle stroke', 'Ход мышцы')} value={params.muscleStrokeMm} min={2} max={100} step={1} unit="mm" onChange={(value) => updateParam('muscleStrokeMm', value)} />
+          <RangeControl label={tr(lang, 'Front muscle L', 'Длина передней мышцы')} value={params.frontMuscleLengthCm} min={10} max={60} step={0.5} unit="cm" onChange={(value) => updateParam('frontMuscleLengthCm', value)} />
+          <RangeControl label={tr(lang, 'Rear muscle L', 'Длина задней мышцы')} value={params.rearMuscleLengthCm} min={10} max={60} step={0.5} unit="cm" onChange={(value) => updateParam('rearMuscleLengthCm', value)} />
+          <RangeControl label={tr(lang, 'Attach point', 'Точка крепления')} value={params.muscleAttachCm} min={1} max={Math.min(params.armLengthCm, 12)} step={0.1} unit="cm" onChange={(value) => updateParam('muscleAttachCm', value)} />
 
           <h2>{tr(lang, 'Control signal', 'Управляющий сигнал')}</h2>
           <RangeControl label={tr(lang, 'Impulse length', 'Длина импульса')} value={params.controlSignalMs} min={50} max={2000} step={50} unit="ms" onChange={(value) => updateParam('controlSignalMs', value)} />
-          <RangeControl label={tr(lang, 'Brake impulse', 'Тормозящий импульс')} value={params.brakeSignalMs} min={0} max={1000} step={25} unit="ms" onChange={(value) => updateParam('brakeSignalMs', value)} />
+          <RangeControl label={tr(lang, 'Brake START', 'Начало торможения')} value={params.brakeStartMs} min={0} max={2000} step={25} unit="ms" onChange={(value) => updateParam('brakeStartMs', value)} />
+          <RangeControl label={tr(lang, 'Brake END', 'Конец торможения')} value={params.brakeEndMs} min={0} max={3000} step={25} unit="ms" onChange={(value) => updateParam('brakeEndMs', value)} />
 
           <h2>{tr(lang, 'Motor reference', 'Сравнение с мотором')}</h2>
           <RangeControl label={tr(lang, 'Motor torque', 'Момент мотора')} value={params.motorTorqueNcm} min={1} max={100} step={1} unit="Ncm" onChange={(value) => updateParam('motorTorqueNcm', value)} />
@@ -720,6 +764,7 @@ function App() {
                     <th>{tr(lang, 'Drive', 'Привод')}</th>
                     <th>{tr(lang, 'Torque', 'Момент')}</th>
                     <th>{tr(lang, 'Added inertia', 'Добавленная инерция')}</th>
+                    <th>{tr(lang, 'Wasted energy', 'Потери (инерция)')}</th>
                     <th>{tr(lang, 'Energy used', 'Энергия')}</th>
                     <th>{tr(lang, 'Tip speed', 'Скорость конца')}</th>
                     <th>{tr(lang, 'Height', 'Высота')}</th>
@@ -731,6 +776,7 @@ function App() {
                     <td>{tr(lang, 'Muscle pair', 'Мышечная пара')}</td>
                     <td>{formatNumber(result.mechanism.netTorque, 3)} Nm</td>
                     <td>{tr(lang, 'near pivot only', 'только у оси')}</td>
+                    <td>{formatNumber(result.mechanism.wastedEnergy, 3)} J</td>
                     <td>{formatNumber(result.mechanism.launchEnergy, 3)} J</td>
                     <td>{formatNumber(result.mechanism.tipSpeed, 2)} m/s</td>
                     <td>{formatNumber(result.maxHeight * 100, 1)} cm</td>
@@ -740,6 +786,7 @@ function App() {
                     <td>{tr(lang, 'Motor', 'Мотор')}</td>
                     <td>{formatNumber(result.motor.outputTorque, 3)} Nm</td>
                     <td>{formatNumber(result.motor.reflectedInertia, 5)} kgm2</td>
+                    <td>{formatNumber(result.motor.wastedEnergy, 3)} J</td>
                     <td>{formatNumber(result.motor.launchEnergy, 3)} J</td>
                     <td>{formatNumber(result.motor.tipSpeed, 2)} m/s</td>
                     <td>{formatNumber(result.motor.maxHeight * 100, 1)} cm</td>
