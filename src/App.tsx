@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   comparisonMasses,
   initialParams,
   type DesignParams,
+  type MotionFrame,
   type SimulationResult,
   simulateDesign,
 } from './model/physics'
@@ -39,18 +40,50 @@ function getPointAtTime(points: SimulationResult['points'], t: number) {
   return points.find((point) => point.t >= t) ?? points[points.length - 1] ?? points[0]
 }
 
-function useSimulationProgress(durationSeconds: number) {
+// ---- Two-link pendulum diagram geometry -----------------------------------
+// The rig hangs from a fixed hip hinge (joint 2) near the top. Angles are
+// measured from the downward vertical (CCW+), so a point at angle θ, distance d
+// from a parent is (parent.x + d·sinθ, parent.y + d·cosθ) in SVG (y-down).
+const ARM_SCALE = 5.15 // px per cm
+const HIP = { x: 320, y: 72 } // ceiling-hinge position in the diagrams
+const WORLD_SCALE = ARM_SCALE * 100 // px per metre (matches link scale)
+
+function linkGeometry(frame: MotionFrame, params: DesignParams) {
+  const L1px = params.upperLinkCm * ARM_SCALE
+  const L2px = params.armLengthCm * ARM_SCALE
+  const knee = {
+    x: HIP.x + Math.sin(frame.hipRad) * L1px,
+    y: HIP.y + Math.cos(frame.hipRad) * L1px,
+  }
+  const tip = {
+    x: knee.x + Math.sin(frame.shankRad) * L2px,
+    y: knee.y + Math.cos(frame.shankRad) * L2px,
+  }
+  return { knee, tip, L1px, L2px }
+}
+
+function useSimulationProgress(durationSeconds: number, speed: number) {
   const [progress, setProgress] = useState(0)
+  const speedRef = useRef(speed)
+
+  useEffect(() => {
+    speedRef.current = speed
+  }, [speed])
 
   useEffect(() => {
     let frameId = 0
-    const startedAt = performance.now()
+    let last = performance.now()
+    let elapsed = 0
+    const holdSeconds = 0.5
+    const cycleSeconds = durationSeconds + holdSeconds
 
     const tick = (now: number) => {
-      const holdSeconds = 0.5
-      const cycleSeconds = durationSeconds + holdSeconds
-      const phase = ((now - startedAt) / 1000) % cycleSeconds
-      setProgress(clamp01(phase / durationSeconds))
+      // Accumulate scaled real time so changing speed mid-play stays smooth
+      // (cap dt to avoid a jump after the tab was backgrounded).
+      const dt = Math.min(0.1, (now - last) / 1000)
+      last = now
+      elapsed = (elapsed + dt * speedRef.current) % cycleSeconds
+      setProgress(clamp01(elapsed / durationSeconds))
       frameId = requestAnimationFrame(tick)
     }
 
@@ -59,6 +92,32 @@ function useSimulationProgress(durationSeconds: number) {
   }, [durationSeconds])
 
   return progress
+}
+
+function PlaybackSpeedControl({
+  speed,
+  onChange,
+  lang,
+}: {
+  speed: number
+  onChange: (value: number) => void
+  lang: Lang
+}) {
+  return (
+    <div className="playback-speed">
+      <span className="playback-speed-label">{tr(lang, 'Speed', 'Скорость')}</span>
+      <input
+        type="range"
+        min={0.05}
+        max={2}
+        step={0.05}
+        value={speed}
+        onChange={(event) => onChange(Number(event.target.value))}
+        aria-label={tr(lang, 'Playback speed', 'Скорость проигрывания')}
+      />
+      <strong>{formatNumber(speed, 2)}×</strong>
+    </div>
+  )
 }
 
 function RangeControl({
@@ -301,63 +360,71 @@ function MechanismDiagram({
   params,
   result,
   simulationTime,
+  playbackSpeed,
+  onPlaybackSpeedChange,
+  lang,
 }: {
   params: DesignParams
   result: SimulationResult
   simulationTime: number
+  playbackSpeed: number
+  onPlaybackSpeedChange: (value: number) => void
+  lang: Lang
 }) {
   const width = 640
   const height = 400
-  const pivotX = 250
-  const pivotY = 250
-  const pointFromPivot = (angleRad: number, distance: number) => ({
-    x: pivotX + Math.cos(angleRad) * distance,
-    y: pivotY - Math.sin(angleRad) * distance,
-  })
-  
-  const baseRotationRad = (-params.baseAngleDeg * Math.PI) / 180
-  const shoulderRad = Math.PI + baseRotationRad
-  const shoulder = pointFromPivot(shoulderRad, 170)
-  const shoulderNormalRad = shoulderRad + Math.PI / 2
-  const leftAnchor = {
-    x: shoulder.x + Math.cos(shoulderNormalRad) * 7,
-    y: shoulder.y - Math.sin(shoulderNormalRad) * 7,
-  }
-  const rightAnchor = {
-    x: shoulder.x - Math.cos(shoulderNormalRad) * 7,
-    y: shoulder.y + Math.sin(shoulderNormalRad) * 7,
-  }
-  const armScale = 5.15
-  const armLength = params.armLengthCm * armScale
-  const releaseRad = Math.PI / 2 + baseRotationRad
+
   const motionFrame = getFrameAtTime(result.mechanism.frames, simulationTime)
   const releaseFrame = getFirstReleasedFrame(result.mechanism.frames)
   const projectileReleased = simulationTime >= releaseFrame.t
-  const currentRad = releaseRad + motionFrame.angleRad
-  const armEndX = pivotX + Math.cos(currentRad) * armLength
-  const armEndY = pivotY - Math.sin(currentRad) * armLength
-  const releaseEndX = pivotX + Math.cos(releaseRad) * armLength
-  const releaseEndY = pivotY - Math.sin(releaseRad) * armLength
-  const attachDistance = Math.min(params.muscleAttachCm, params.armLengthCm) * armScale
-  const attachX = pivotX + Math.cos(currentRad) * attachDistance
-  const attachY = pivotY - Math.sin(currentRad) * attachDistance
-  const rearAttachX = pivotX - Math.cos(currentRad) * attachDistance
-  const rearAttachY = pivotY + Math.sin(currentRad) * attachDistance
-  const contractingLengthCm = Math.hypot(rightAnchor.x - attachX, rightAnchor.y - attachY) / armScale
-  const elongatingLengthCm = Math.hypot(rearAttachX - leftAnchor.x, rearAttachY - leftAnchor.y) / armScale
-  const projectileScale = armScale * 100
-  const releaseHeightM = Math.max(0.01, params.pivotHeightCm / 100 + Math.sin(releaseRad) * (params.armLengthCm / 100))
+
+  const { knee, tip, L1px } = linkGeometry(motionFrame, params)
+  const releaseGeo = linkGeometry(releaseFrame, params)
+
+  // Unit directions along / across the two links (SVG, y-down).
+  const thighUx = Math.sin(motionFrame.hipRad)
+  const thighUy = Math.cos(motionFrame.hipRad)
+  const thighNx = Math.cos(motionFrame.hipRad)
+  const thighNy = -Math.sin(motionFrame.hipRad)
+  const shankUx = Math.sin(motionFrame.shankRad)
+  const shankUy = Math.cos(motionFrame.shankRad)
+  const shankNx = Math.cos(motionFrame.shankRad)
+  const shankNy = -Math.sin(motionFrame.shankRad)
+
+  const pinDist = Math.min(params.muscleAttachCm, params.armLengthCm) * ARM_SCALE
+  const originDist = L1px * 0.85 // muscle ends sit high on the thigh, near hip hinge (joint 2)
+  const pinOffset = 13 // spread the two shank pins (joints 3 & 4) further apart
+  const originOffset = 7
+  // Muscle insertions on the shank (just below the knee) and origins on the thigh.
+  const frontPin = { x: knee.x + shankUx * pinDist + shankNx * pinOffset, y: knee.y + shankUy * pinDist + shankNy * pinOffset }
+  const rearPin = { x: knee.x + shankUx * pinDist - shankNx * pinOffset, y: knee.y + shankUy * pinDist - shankNy * pinOffset }
+  const frontOrigin = { x: knee.x - thighUx * originDist + thighNx * originOffset, y: knee.y - thighUy * originDist + thighNy * originOffset }
+  const rearOrigin = { x: knee.x - thighUx * originDist - thighNx * originOffset, y: knee.y - thighUy * originDist - thighNy * originOffset }
+
+  const extensorLengthCm = Math.hypot(frontPin.x - frontOrigin.x, frontPin.y - frontOrigin.y) / ARM_SCALE
+  const flexorLengthCm = Math.hypot(rearPin.x - rearOrigin.x, rearPin.y - rearOrigin.y) / ARM_SCALE
+
   const projectilePoint = getPointAtTime(result.points, Math.max(0, simulationTime - releaseFrame.t))
-  const projectileX = projectileReleased ? releaseEndX + projectilePoint.x * projectileScale : armEndX
+  const releaseHeightM = result.points[0]?.y ?? 0
+  const projectileX = projectileReleased ? releaseGeo.tip.x + projectilePoint.x * WORLD_SCALE : tip.x
   const projectileY = projectileReleased
-    ? releaseEndY - (projectilePoint.y - releaseHeightM) * projectileScale
-    : armEndY
+    ? releaseGeo.tip.y - (projectilePoint.y - releaseHeightM) * WORLD_SCALE
+    : tip.y
 
   const contractingActive = (simulationTime <= params.controlSignalMs / 1000 && motionFrame.travelM < (params.frontMuscleLengthCm * 0.25) / 100) || (simulationTime >= params.brakeStartMs / 1000 && simulationTime <= params.brakeEndMs / 1000)
   const elongatingActive = simulationTime >= params.brakeStartMs / 1000 && simulationTime <= params.brakeEndMs / 1000
 
+  // Numbered joints. 1 = free knee, 2 = fixed hip hinge, 3/4 = muscle pins.
+  const joints = [
+    { n: 1, x: knee.x, y: knee.y, bx: knee.x - 34, by: knee.y - 6 },
+    { n: 2, x: HIP.x, y: HIP.y, bx: HIP.x - 30, by: HIP.y + 4 },
+    { n: 3, x: frontPin.x, y: frontPin.y, bx: knee.x + shankUx * 56 + shankNx * 26, by: knee.y + shankUy * 56 + shankNy * 26 },
+    { n: 4, x: rearPin.x, y: rearPin.y, bx: knee.x + shankUx * 56 - shankNx * 26, by: knee.y + shankUy * 56 - shankNy * 26 },
+  ]
+
   return (
     <div className="diagram-shell">
+      <PlaybackSpeedControl speed={playbackSpeed} onChange={onPlaybackSpeedChange} lang={lang} />
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Lever mechanism diagram">
         <defs>
           <marker id="arrowhead" markerHeight="8" markerWidth="8" orient="auto" refX="7" refY="4">
@@ -376,60 +443,83 @@ function MechanismDiagram({
         <text className="diagram-note" x="28" y="58">
           Torque comes from tension difference, not from a motor mounted on the pivot.
         </text>
-        <line className="upper-arm-line" x1={shoulder.x} y1={shoulder.y} x2={pivotX} y2={pivotY} />
-        <circle className="shoulder-joint" cx={shoulder.x} cy={shoulder.y} r="11" />
-        <circle className="elbow-joint" cx={pivotX} cy={pivotY} r="22" />
-        <line 
-          className="muscle-line" 
-          x1={leftAnchor.x} y1={leftAnchor.y} x2={rearAttachX} y2={rearAttachY} 
-          style={{ stroke: elongatingActive ? '#ff8c00' : '#4a9eff', strokeWidth: elongatingActive ? 8 : 4, transition: 'stroke 0.1s' }}
-        />
-        <line 
-          className="muscle-line" 
-          x1={rightAnchor.x} y1={rightAnchor.y} x2={attachX} y2={attachY} 
+
+        {/* Top suspension mount: the rig hangs from the fixed hip hinge */}
+        <line x1="120" y1="34" x2="520" y2="34" stroke="#555" strokeWidth="6" strokeLinecap="round" />
+        {Array.from({ length: 10 }).map((_, i) => (
+          <line key={`hatch-${i}`} x1={132 + i * 42} y1="34" x2={120 + i * 42} y2="22" stroke="#555" strokeWidth="3" />
+        ))}
+        <line x1={HIP.x} y1="34" x2={HIP.x} y2={HIP.y} stroke="#777" strokeWidth="4" />
+        <circle cx={HIP.x} cy="34" r="5" fill="#777" />
+
+        {/* Two-link pendulum: thigh (hip→knee) + shank (knee→tip) */}
+        <line className="upper-arm-line" x1={HIP.x} y1={HIP.y} x2={knee.x} y2={knee.y} />
+        <line className="forearm-shell" x1={knee.x} y1={knee.y} x2={tip.x} y2={tip.y} />
+        <line className="arm-line" x1={knee.x} y1={knee.y} x2={tip.x} y2={tip.y} />
+
+        {/* Muscles crossing the knee: extensor (front) + flexor (rear) */}
+        <line
+          className="muscle-line"
+          x1={frontOrigin.x} y1={frontOrigin.y} x2={frontPin.x} y2={frontPin.y}
           style={{ stroke: contractingActive ? '#ff8c00' : '#4a9eff', strokeWidth: contractingActive ? 8 : 4, transition: 'stroke 0.1s' }}
         />
-        <line className="attach-link" x1={pivotX} y1={pivotY} x2={attachX} y2={attachY} />
-        <line className="attach-link rear-attach-link" x1={pivotX} y1={pivotY} x2={rearAttachX} y2={rearAttachY} />
-        <line className="forearm-extension" x1={pivotX} y1={pivotY} x2={rearAttachX} y2={rearAttachY} />
-        <line className="forearm-shell" x1={pivotX} y1={pivotY} x2={armEndX} y2={armEndY} />
-        <line className="arm-line" x1={pivotX} y1={pivotY} x2={armEndX} y2={armEndY} />
-        <circle className="pivot" cx={pivotX} cy={pivotY} r="10" />
-        <circle className="pulley" cx={pivotX} cy={pivotY} r={Math.max(8, params.pulleyRadiusCm * 4)} />
-        <circle className="attach-dot" cx={attachX} cy={attachY} r="7" />
-        <circle className="attach-dot rear-attach-dot" cx={rearAttachX} cy={rearAttachY} r="7" />
-        <circle className="mount-dot" cx={leftAnchor.x} cy={leftAnchor.y} r="5" />
-        <circle className="mount-dot contracting-mount" cx={rightAnchor.x} cy={rightAnchor.y} r="5" />
-        {projectileReleased && <circle className="wrist-dot" cx={armEndX} cy={armEndY} r="6" />}
+        <line
+          className="muscle-line"
+          x1={rearOrigin.x} y1={rearOrigin.y} x2={rearPin.x} y2={rearPin.y}
+          style={{ stroke: elongatingActive ? '#ff8c00' : '#4a9eff', strokeWidth: elongatingActive ? 8 : 4, transition: 'stroke 0.1s' }}
+        />
+
+        {/* Hip hinge (fixed, joint 2) */}
+        <circle className="shoulder-joint" cx={HIP.x} cy={HIP.y} r="11" />
+        {/* Free knee (joint 1) */}
+        <circle className="elbow-joint" cx={knee.x} cy={knee.y} r="13" />
+        <circle className="pivot" cx={knee.x} cy={knee.y} r="6" />
+        {/* Muscle pins */}
+        <circle className="attach-dot" cx={frontPin.x} cy={frontPin.y} r="6" />
+        <circle className="attach-dot rear-attach-dot" cx={rearPin.x} cy={rearPin.y} r="6" />
+        <circle className="mount-dot contracting-mount" cx={frontOrigin.x} cy={frontOrigin.y} r="5" />
+        <circle className="mount-dot" cx={rearOrigin.x} cy={rearOrigin.y} r="5" />
+        {projectileReleased && <circle className="wrist-dot" cx={tip.x} cy={tip.y} r="6" />}
         <circle className={projectileReleased ? 'payload-dot released-payload' : 'payload-dot'} cx={projectileX} cy={projectileY} r="13" />
-        <line className="leader-line" x1={pivotX + 12} y1={pivotY + 8} x2="330" y2="330" />
-        <text className="diagram-label" x="336" y="334">pivot</text>
 
-        <line className="leader-line" x1={armEndX + 12} y1={armEndY} x2="430" y2="112" />
-        <text className="diagram-label" x="438" y="116">payload m</text>
+        {/* Joint key */}
+        <g className="joint-key">
+          {[
+            'free knee (joint 1)',
+            'hip hinge — fixed (joint 2)',
+            'extensor pin (shank)',
+            'flexor pin (shank)',
+          ].map((label, i) => (
+            <g key={`key-${i}`} transform={`translate(28, ${88 + i * 26})`}>
+              <circle cx="9" cy="9" r="9" fill="#10151f" stroke="#ff8c00" strokeWidth="2" />
+              <text x="9" y="13" textAnchor="middle" fontSize="11" fontWeight="700" fill="#ffb259">{i + 1}</text>
+              <text x="26" y="13" fontSize="12" fill="#aab4c4">{label}</text>
+            </g>
+          ))}
+        </g>
 
-        <line className="leader-line" x1={leftAnchor.x} y1={leftAnchor.y} x2="118" y2="252" />
-        <text className="diagram-label" x="124" y="256">elongating muscle</text>
-
-        <line className="leader-line" x1={rightAnchor.x} y1={rightAnchor.y} x2="514" y2="252" />
-        <text className="diagram-label" x="438" y="256">contracting muscle</text>
-
-        <line className="leader-line" x1={attachX + 8} y1={attachY} x2="350" y2="168" />
-        <text className="diagram-label" x="356" y="172">lever L</text>
+        {/* Numbered joints */}
+        {joints.map((j) => (
+          <g key={`joint-${j.n}`} className="joint-badge">
+            <line x1={j.x} y1={j.y} x2={j.bx} y2={j.by} stroke="#ff8c00" strokeWidth="1.5" />
+            <circle cx={j.bx} cy={j.by} r="10" fill="#10151f" stroke="#ff8c00" strokeWidth="2" />
+            <text x={j.bx} y={j.by + 4} textAnchor="middle" fontSize="12" fontWeight="700" fill="#ffb259">{j.n}</text>
+          </g>
+        ))}
 
         <g className="diagram-stats">
           <rect x="500" y="82" width="184" height="132" rx="8" />
           <text x="516" y="112" style={{ fontWeight: 'bold', fill: '#ff8c00' }}>Festo DMSP-20</text>
-          <text x="516" y="140">T current: {formatNumber(motionFrame.torque / Math.max(0.01, params.muscleAttachCm/100), 1)} N</text>
-          <text x="516" y="168">net torque: {formatNumber(result.mechanism.netTorque, 3)} Nm</text>
-          <text x="516" y="196">travel: {formatNumber(result.mechanism.muscleTravelM * 1000, 0)} mm</text>
+          <text x="516" y="140">knee torque: {formatNumber(motionFrame.torque, 2)} Nm</text>
+          <text x="516" y="168">tip speed: {formatNumber(result.mechanism.tipSpeed, 2)} m/s</text>
+          <text x="516" y="196">muscle work: {formatNumber(result.mechanism.muscleWork, 3)} J</text>
         </g>
 
         <text className="dimension-label" x="78" y="372">
-          elongating length: {formatNumber(elongatingLengthCm, 1)} cm
+          flexor length: {formatNumber(flexorLengthCm, 1)} cm
         </text>
         <text className="dimension-label" x="442" y="372">
-          contracting length: {formatNumber(contractingLengthCm, 1)} cm
+          extensor length: {formatNumber(extensorLengthCm, 1)} cm
         </text>
       </svg>
     </div>
@@ -440,45 +530,38 @@ function MotorDiagram({
   params,
   result,
   simulationTime,
+  playbackSpeed,
+  onPlaybackSpeedChange,
+  lang,
 }: {
   params: DesignParams
   result: SimulationResult
   simulationTime: number
+  playbackSpeed: number
+  onPlaybackSpeedChange: (value: number) => void
+  lang: Lang
 }) {
   const width = 640
   const height = 400
-  const pivotX = 250
-  const pivotY = 250
-  const pointFromPivot = (angleRad: number, distance: number) => ({
-    x: pivotX + Math.cos(angleRad) * distance,
-    y: pivotY - Math.sin(angleRad) * distance,
-  })
-  
-  const baseRotationRad = (-params.baseAngleDeg * Math.PI) / 180
-  const shoulderRad = Math.PI + baseRotationRad
-  const shoulder = pointFromPivot(shoulderRad, 170)
-  const armScale = 5.15
-  const armLength = params.armLengthCm * armScale
-  const releaseRad = Math.PI / 2 + baseRotationRad
+
   const motionFrame = getFrameAtTime(result.motor.frames, simulationTime)
   const releaseFrame = getFirstReleasedFrame(result.motor.frames)
   const projectileReleased = simulationTime >= releaseFrame.t
-  const currentRad = releaseRad + motionFrame.angleRad
-  const armEndX = pivotX + Math.cos(currentRad) * armLength
-  const armEndY = pivotY - Math.sin(currentRad) * armLength
-  const releaseEndX = pivotX + Math.cos(releaseRad) * armLength
-  const releaseEndY = pivotY - Math.sin(releaseRad) * armLength
-  const motorGearRadius = 44
-  const projectileScale = armScale * 100
-  const releaseHeightM = Math.max(0.01, params.pivotHeightCm / 100 + Math.sin(releaseRad) * (params.armLengthCm / 100))
+
+  const { knee, tip } = linkGeometry(motionFrame, params)
+  const releaseGeo = linkGeometry(releaseFrame, params)
+  const motorGearRadius = 30
+
   const projectilePoint = getPointAtTime(result.motor.points, Math.max(0, simulationTime - releaseFrame.t))
-  const projectileX = projectileReleased ? releaseEndX + projectilePoint.x * projectileScale : armEndX
+  const releaseHeightM = result.motor.points[0]?.y ?? 0
+  const projectileX = projectileReleased ? releaseGeo.tip.x + projectilePoint.x * WORLD_SCALE : tip.x
   const projectileY = projectileReleased
-    ? releaseEndY - (projectilePoint.y - releaseHeightM) * projectileScale
-    : armEndY
+    ? releaseGeo.tip.y - (projectilePoint.y - releaseHeightM) * WORLD_SCALE
+    : tip.y
 
   return (
     <div className="diagram-shell">
+      <PlaybackSpeedControl speed={playbackSpeed} onChange={onPlaybackSpeedChange} lang={lang} />
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Motor drive diagram">
         <defs>
           <marker id="motor-arrowhead" markerHeight="8" markerWidth="8" orient="auto" refX="7" refY="4">
@@ -491,21 +574,30 @@ function MotorDiagram({
         <line x1="0" y1={height - 20} x2={width} y2={height - 20} stroke="#444" strokeWidth="2" strokeDasharray="5,5" />
         <text x="10" y={height - 5} fill="#666" fontSize="12">Ground Level</text>
 
-        <text className="diagram-title" x="28" y="34">Motor at pivot</text>
+        <text className="diagram-title" x="28" y="34">Motor at the knee</text>
         <text className="diagram-note" x="28" y="58">
-          Torque is generated through a gearbox mounted directly on the pivot.
+          Torque is generated through a gearbox mounted at the knee (joint 1).
         </text>
-        <line className="upper-arm-line" x1={shoulder.x} y1={shoulder.y} x2={pivotX} y2={pivotY} />
-        <circle className="shoulder-joint" cx={shoulder.x} cy={shoulder.y} r="11" />
-        <circle className="motor-gear-unit" cx={pivotX} cy={pivotY} r={motorGearRadius} />
-        <circle className="elbow-joint motor-elbow-joint" cx={pivotX} cy={pivotY} r="18" />
-        <line className="forearm-shell" x1={pivotX} y1={pivotY} x2={armEndX} y2={armEndY} />
-        <line className="arm-line" x1={pivotX} y1={pivotY} x2={armEndX} y2={armEndY} />
-        {projectileReleased && <circle className="wrist-dot" cx={armEndX} cy={armEndY} r="6" />}
+
+        {/* Top suspension mount: the rig hangs from the fixed hip hinge */}
+        <line x1="120" y1="34" x2="520" y2="34" stroke="#555" strokeWidth="6" strokeLinecap="round" />
+        {Array.from({ length: 10 }).map((_, i) => (
+          <line key={`hatch-${i}`} x1={132 + i * 42} y1="34" x2={120 + i * 42} y2="22" stroke="#555" strokeWidth="3" />
+        ))}
+        <line x1={HIP.x} y1="34" x2={HIP.x} y2={HIP.y} stroke="#777" strokeWidth="4" />
+        <circle cx={HIP.x} cy="34" r="5" fill="#777" />
+
+        {/* Two-link pendulum: thigh (hip→knee) + shank (knee→tip) */}
+        <line className="upper-arm-line" x1={HIP.x} y1={HIP.y} x2={knee.x} y2={knee.y} />
+        <line className="forearm-shell" x1={knee.x} y1={knee.y} x2={tip.x} y2={tip.y} />
+        <line className="arm-line" x1={knee.x} y1={knee.y} x2={tip.x} y2={tip.y} />
+        <circle className="shoulder-joint" cx={HIP.x} cy={HIP.y} r="11" />
+        <circle className="motor-gear-unit" cx={knee.x} cy={knee.y} r={motorGearRadius} />
+        <circle className="elbow-joint motor-elbow-joint" cx={knee.x} cy={knee.y} r="14" />
+        {projectileReleased && <circle className="wrist-dot" cx={tip.x} cy={tip.y} r="6" />}
         <circle className={projectileReleased ? 'payload-dot released-payload' : 'payload-dot'} cx={projectileX} cy={projectileY} r="13" />
-        <text className="diagram-label" x={pivotX - 122} y={pivotY + 48}>motor</text>
-        <text className="diagram-label" x={pivotX + 48} y={pivotY + 50}>gearbox</text>
-        <text className="diagram-label" x="390" y="112">payload m</text>
+        <text className="diagram-label" x={HIP.x - 96} y={HIP.y + 4}>hip hinge</text>
+        <text className="diagram-label" x={knee.x + motorGearRadius + 6} y={knee.y + 4}>motor + gearbox</text>
 
         <g className="diagram-stats">
           <rect x="414" y="82" width="194" height="158" rx="8" />
@@ -603,6 +695,7 @@ function DriveTradeoff({ result, lang }: { result: SimulationResult; lang: Lang 
 function App() {
   const [lang, setLang] = useState<Lang>('en')
   const [params, setParams] = useState(initialParams)
+  const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const result = useMemo(() => simulateDesign(params), [params])
   const muscleMotionTime = result.mechanism.frames.at(-1)?.t ?? 0
   const motorMotionTime = result.motor.frames.at(-1)?.t ?? 0
@@ -611,7 +704,7 @@ function App() {
   const muscleFlightEndTime = muscleReleaseTime + result.flightTime
   const motorFlightEndTime = motorReleaseTime + result.motor.flightTime
   const simulationDuration = Math.max(0.45, Math.min(5, Math.max(muscleMotionTime, motorMotionTime, muscleFlightEndTime, motorFlightEndTime)))
-  const simulationProgress = useSimulationProgress(simulationDuration)
+  const simulationProgress = useSimulationProgress(simulationDuration, playbackSpeed)
   const simulationTime = simulationProgress * simulationDuration
   const muscleTrajectoryProgress = simulationProgress
   const comparisons = useMemo(
@@ -656,11 +749,13 @@ function App() {
           <h2>{tr(lang, 'Payload', 'Снаряд')}</h2>
           <RangeControl label={tr(lang, 'Object mass', 'Масса объекта')} value={params.projectileMassG} min={5} max={60} step={1} unit="g" onChange={(value) => updateParam('projectileMassG', value)} />
 
-          <h2>{tr(lang, 'Lever', 'Рычаг')}</h2>
-          <RangeControl label={tr(lang, 'Base Angle', 'Наклон установки')} value={params.baseAngleDeg} min={0} max={180} step={5} unit="deg" onChange={(value) => updateParam('baseAngleDeg', value)} />
-          <RangeControl label={tr(lang, 'Arm length', 'Длина рычага')} value={params.armLengthCm} min={15} max={45} step={0.5} unit="cm" onChange={(value) => updateParam('armLengthCm', value)} />
-          <RangeControl label={tr(lang, 'Arm mass', 'Масса рычага')} value={params.armMassG} min={1} max={80} step={1} unit="g" onChange={(value) => updateParam('armMassG', value)} />
-          <RangeControl label={tr(lang, 'Angular sweep', 'Угловой ход')} value={params.sweepDeg} min={5} max={110} step={1} unit="deg" onChange={(value) => updateParam('sweepDeg', value)} />
+          <h2>{tr(lang, 'Pendulum (hip + knee)', 'Маятник (бедро + колено)')}</h2>
+          <RangeControl label={tr(lang, 'Hip start angle', 'Стартовый угол бедра')} value={params.baseAngleDeg} min={-90} max={90} step={5} unit="deg" onChange={(value) => updateParam('baseAngleDeg', value)} />
+          <RangeControl label={tr(lang, 'Thigh length', 'Длина бедра')} value={params.upperLinkCm} min={8} max={40} step={0.5} unit="cm" onChange={(value) => updateParam('upperLinkCm', value)} />
+          <RangeControl label={tr(lang, 'Thigh mass', 'Масса бедра')} value={params.upperLinkMassG} min={5} max={200} step={5} unit="g" onChange={(value) => updateParam('upperLinkMassG', value)} />
+          <RangeControl label={tr(lang, 'Shank length', 'Длина голени')} value={params.armLengthCm} min={15} max={45} step={0.5} unit="cm" onChange={(value) => updateParam('armLengthCm', value)} />
+          <RangeControl label={tr(lang, 'Shank mass', 'Масса голени')} value={params.armMassG} min={1} max={80} step={1} unit="g" onChange={(value) => updateParam('armMassG', value)} />
+          <RangeControl label={tr(lang, 'Knee sweep', 'Ход колена')} value={params.sweepDeg} min={5} max={150} step={1} unit="deg" onChange={(value) => updateParam('sweepDeg', value)} />
 
           <h2>{tr(lang, 'Muscle pair (Festo DMSP-20)', 'Пара мышц (Festo DMSP-20)')}</h2>
           <div style={{ fontSize: '0.85em', color: '#888', marginBottom: '12px' }}>
@@ -683,7 +778,7 @@ function App() {
         <section className="main-column">
           <div className="overview-grid">
             <div className="sim-column">
-              <MechanismDiagram params={params} result={result} simulationTime={simulationTime} />
+              <MechanismDiagram params={params} result={result} simulationTime={simulationTime} playbackSpeed={playbackSpeed} onPlaybackSpeedChange={setPlaybackSpeed} lang={lang} />
               <CombinedTrajectoryPlot
                 title={tr(lang, 'Throw trajectory', 'Траектория броска')}
                 musclePoints={result.points}
@@ -698,7 +793,7 @@ function App() {
               />
             </div>
             <div className="sim-column">
-              <MotorDiagram params={params} result={result} simulationTime={simulationTime} />
+              <MotorDiagram params={params} result={result} simulationTime={simulationTime} playbackSpeed={playbackSpeed} onPlaybackSpeedChange={setPlaybackSpeed} lang={lang} />
               <EfficiencyPlot title={tr(lang, 'Launch efficiency', 'КПД броска')} params={params} result={result} lang={lang} />
             </div>
             <DiagramLegend lang={lang} />

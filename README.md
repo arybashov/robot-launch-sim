@@ -76,6 +76,6 @@ To ensure stability and realism, the simulator includes:
 
 ## 5. Ballistics (Projectile Motion)
 
-Upon reaching the release angle (defined by the base tilt), the projectile is freed.
+The rig is **suspended from a top anchor**: the arm rests hanging straight down and the muscles drive it *upward* through the angular sweep $\Delta\theta$. Gravity therefore acts as a restoring (braking) torque during the launch swing. Upon reaching the top of the swing ($\theta = 0$), the projectile is freed, departing tangentially at $\Delta\theta$ above the horizontal.
 * **Launch Velocity:** $v_0 = \omega_{release} \cdot L_{arm}$
-* **Trajectory:** Calculated using standard projectile motion equations, accounting for the dynamic base angle orientation and optional aerodynamic drag on the ball.
+* **Trajectory:** Calculated using standard projectile motion equations from the release height (pivot height minus the arm's downward reach), with optional aerodynamic drag on the ball.

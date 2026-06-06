@@ -313,18 +313,18 @@
     <h2><span class="en">3. Mathematical Model</span><span class="ru">3. Математическая модель</span></h2>
 
     <h3 id="kinematics"><span class="en">3.1 Kinematics</span><span class="ru">3.1 Кинематика</span></h3>
-    <p class="en">The arm is a rigid body rotating about the pivot. We define $\theta$ as the angle swept from the start position, with $\theta = 0$ at release (arm pointing vertically, giving maximum payload height). The arm starts at $\theta_0 = -\Delta\theta$ and is driven forward to $\theta_r = 0$.</p>
-    <p class="ru">Рычаг — твёрдое тело, вращающееся вокруг оси. $\theta$ — угол, отсчитываемый от начального положения; $\theta = 0$ соответствует моменту отпускания (рычаг вертикален, снаряд на максимальной высоте). Рычаг начинает движение с $\theta_0 = -\Delta\theta$ и разгоняется до $\theta_r = 0$.</p>
+    <p class="en">The rig is <em>suspended from a top anchor</em>: the pivot hangs from the mount and the arm rests hanging straight down. We define $\theta$ as the angle swept from this rest position, with $\theta = 0$ at release. The arm starts at rest, $\theta_0 = -\Delta\theta$ (hanging vertically down), and is driven <em>upward</em> through the sweep to release at $\theta_r = 0$, at the top of the upward swing.</p>
+    <p class="ru">Установка <em>подвешена за верхнюю точку</em>: ось крепится к подвесу, а рычаг в покое висит строго вниз. $\theta$ — угол, отсчитываемый от этого положения покоя; $\theta = 0$ соответствует моменту отпускания. Рычаг стартует из покоя, $\theta_0 = -\Delta\theta$ (висит вертикально вниз), и разгоняется <em>вверх</em> по дуге до отпускания при $\theta_r = 0$ — в верхней точке замаха.</p>
 
     <div class="math-block">$$\theta(t) \in [-\Delta\theta,\; 0], \qquad \Delta\theta \text{ = <span class="en">angular sweep</span><span class="ru">угловой ход</span> (rad)}$$</div>
 
-    <p class="en">The world-frame arm angle at any instant is:</p>
-    <p class="ru">Абсолютный угол рычага в мировой системе координат:</p>
+    <p class="en">The world-frame arm angle at any instant is (measured from the horizontal, with $-\pi/2$ pointing straight down):</p>
+    <p class="ru">Абсолютный угол рычага в мировой системе координат (от горизонтали; $-\pi/2$ — строго вниз):</p>
 
-    <div class="math-block">$$\phi_{arm}(t) = \frac{\pi}{2} + \phi_{base} + \theta(t)$$</div>
+    <div class="math-block">$$\phi_{arm}(t) = -\frac{\pi}{2} + \Delta\theta + \phi_{base} + \theta(t)$$</div>
 
-    <p class="en">where $\phi_{base}$ is the tilt of the installation (negative for a forward lean).</p>
-    <p class="ru">где $\phi_{base}$ — наклон установки (отрицательный при наклоне вперёд).</p>
+    <p class="en">where $\phi_{base}$ is an optional rigid tilt of the suspension ($0$ = hangs vertically). At rest $\phi_{arm} = -\pi/2$; at release $\phi_{arm} = -\pi/2 + \Delta\theta$, and the payload departs tangentially at $\Delta\theta$ above the horizontal.</p>
+    <p class="ru">где $\phi_{base}$ — необязательный жёсткий наклон подвеса ($0$ = висит вертикально). В покое $\phi_{arm} = -\pi/2$; при отпускании $\phi_{arm} = -\pi/2 + \Delta\theta$, и снаряд уходит по касательной под углом $\Delta\theta$ к горизонту.</p>
 
     <h3 id="inertia"><span class="en">3.2 Moments of Inertia</span><span class="ru">3.2 Моменты инерции</span></h3>
     <p class="en">The arm is modelled as a thin rod pivoted at one end, plus a small basket at the tip that holds the projectile until release.</p>
@@ -375,9 +375,9 @@
     <p class="ru">Раскрывая двумерное векторное произведение:</p>
     <div class="math-block">$$= T_{drive} \cdot \frac{r_x\,(s_y - r_y)\;-\;r_y\,(s_x - r_x)}{L_{muscle}}$$</div>
 
-    <p class="en">A gravity torque and viscous damping are added:</p>
-    <p class="ru">Добавляются момент силы тяжести и вязкое демпфирование:</p>
-    <div class="math-block">$$\tau_{grav} = -m_{eff}\,g\,r_{cm}\cos\!\left(\theta + \tfrac{\pi}{2} + \phi_{base}\right)$$</div>
+    <p class="en">A gravity torque and viscous damping are added. Because the rig is suspended, gravity is a <em>restoring</em> torque toward the hanging-down rest — it is zero at $\phi_{arm} = -\pi/2$ and <em>brakes</em> the upward launch swing:</p>
+    <p class="ru">Добавляются момент силы тяжести и вязкое демпфирование. Поскольку установка подвешена, тяжесть даёт <em>возвращающий</em> момент к нижнему положению покоя — он равен нулю при $\phi_{arm} = -\pi/2$ и <em>тормозит</em> замах вверх:</p>
+    <div class="math-block">$$\tau_{grav} = -m_{eff}\,g\,r_{cm}\cos\big(\phi_{arm}\big)$$</div>
     <div class="math-block">$$\tau_{friction} = c_{drag}\,\dot\theta\,|\dot\theta| + c_{visc}\,\dot\theta$$</div>
 
     <h3 id="eom"><span class="en">3.5 Equation of Motion</span><span class="ru">3.5 Уравнение движения</span></h3>
@@ -494,7 +494,7 @@
           <tr><td>$L$</td><td>30</td><td>cm</td><td><span class="en">Arm length</span><span class="ru">Длина рычага</span></td></tr>
           <tr><td>$m_{arm}$</td><td>50</td><td>g</td><td><span class="en">Arm mass</span><span class="ru">Масса рычага</span></td></tr>
           <tr><td>$\Delta\theta$</td><td>70</td><td>deg</td><td><span class="en">Angular sweep</span><span class="ru">Угловой ход</span></td></tr>
-          <tr><td>$\phi_{base}$</td><td>135</td><td>deg</td><td><span class="en">Installation tilt</span><span class="ru">Наклон установки</span></td></tr>
+          <tr><td>$\phi_{base}$</td><td>0</td><td>deg</td><td><span class="en">Suspension tilt (0 = hangs vertically)</span><span class="ru">Наклон подвеса (0 = висит вертикально)</span></td></tr>
           <tr><td>$d$</td><td>4</td><td>cm</td><td><span class="en">Muscle attach distance from pivot</span><span class="ru">Расстояние крепления мышцы от оси</span></td></tr>
           <tr><td>$L_{front}$</td><td>30</td><td>cm</td><td><span class="en">Front muscle nominal length</span><span class="ru">Номинальная длина передней мышцы</span></td></tr>
           <tr><td>$L_{rear}$</td><td>25</td><td>cm</td><td><span class="en">Rear muscle nominal length</span><span class="ru">Номинальная длина задней мышцы</span></td></tr>
@@ -530,7 +530,8 @@
 
     <h3><span class="en">Termination conditions</span><span class="ru">Условия завершения</span></h3>
     <ul>
-      <li><p class="en"><strong>Release:</strong> $\theta \geq 0$ — arm reached vertical.</p><p class="ru"><strong>Отпускание:</strong> $\theta \geq 0$ — рычаг достиг вертикали.</p></li>
+      <li><p class="en"><strong>Release:</strong> $\theta \geq 0$ — arm reached the top of the upward swing.</p><p class="ru"><strong>Отпускание:</strong> $\theta \geq 0$ — рычаг достиг верхней точки замаха.</p></li>
+      <li><p class="en"><strong>Arm settles:</strong> hanging straight down again, $\theta \approx -\Delta\theta$.</p><p class="ru"><strong>Рычаг останавливается:</strong> снова висит строго вниз, $\theta \approx -\Delta\theta$.</p></li>
       <li><p class="en"><strong>Projectile:</strong> $y \leq 0$ and $t > \Delta t$ — ground contact.</p><p class="ru"><strong>Снаряд:</strong> $y \leq 0$ и $t > \Delta t$ — касание земли.</p></li>
       <li><p class="en"><strong>Arm post-release:</strong> $|\dot\theta| < 0.01\ \text{rad/s}$ after brake window, or 8 s absolute limit.</p><p class="ru"><strong>Рычаг после отпускания:</strong> $|\dot\theta| < 0{,}01\ \text{рад/с}$ после торможения или 8 с абсолютного лимита.</p></li>
       <li><p class="en"><strong>Hard cap:</strong> 20 000 steps per simulation.</p><p class="ru"><strong>Жёсткое ограничение:</strong> 20 000 шагов на симуляцию.</p></li>

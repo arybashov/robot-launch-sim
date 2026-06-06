@@ -548,6 +548,41 @@ input[type='range'] {
 .diagram-shell {
   min-height: 400px;
   overflow: hidden;
+  position: relative;
+}
+
+.playback-speed {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(20, 26, 38, 0.72);
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e7edf6;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.playback-speed-label {
+  opacity: 0.8;
+}
+
+.playback-speed input[type='range'] {
+  width: 86px;
+  accent-color: #5aa9ff;
+  cursor: pointer;
+}
+
+.playback-speed strong {
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .diagram-shell svg {
